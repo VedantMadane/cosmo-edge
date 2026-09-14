@@ -1,7 +1,7 @@
-# FFmpeg prebuilt binary integration
+# FFmpeg prebuilt binary integration with a pinned FLV demuxer backport
 #
-# Instead of compiling FFmpeg from source via ExternalProject_Add, we use
-# prebuilt shared libraries placed under prebuild/ffmpeg/<arch>/.
+# Use prebuilt shared libraries under prebuild/ffmpeg/<arch>/, except libavformat:
+# rebuild that library from the matching release to recognize legacy FLV HEVC.
 #
 # Prerequisites:
 #   - prebuild/ffmpeg/aarch64/{include/,lib/} for the Sophon/aarch64 target
@@ -10,9 +10,8 @@
 #   - If COSMO_ENABLE_OPENH264 is ON, libopenh264.so must also be present in the
 #     same lib/ directory (FFmpeg must have been built with --enable-libopenh264).
 #
-# License rationale: using prebuilt binaries with known configure flags (no GPL
-# components) eliminates the risk of accidentally enabling GPL-only encoders or
-# decoders during a developer's local source build.
+# Keep known non-GPL prebuilt codecs. The libavformat build also omits GPL and
+# nonfree configure flags; it does not install its locally built codec libraries.
 
 if(COSMO_TARGET_ARCH STREQUAL "aarch64")
     set(FFMPEG_PREBUILD_DIR ${CMAKE_CURRENT_SOURCE_DIR}/prebuild/ffmpeg/aarch64)
@@ -30,6 +29,10 @@ set(FFMPEG_AVFORMAT_LIB    ${FFMPEG_PREBUILD_DIR}/lib/libavformat.so)
 set(FFMPEG_AVUTIL_LIB      ${FFMPEG_PREBUILD_DIR}/lib/libavutil.so)
 set(FFMPEG_SWRESAMPLE_LIB  ${FFMPEG_PREBUILD_DIR}/lib/libswresample.so)
 set(FFMPEG_SWSCALE_LIB     ${FFMPEG_PREBUILD_DIR}/lib/libswscale.so)
+
+# The pinned prebuilt FLV demuxer predates legacy HEVC CodecID 12 support.
+# Build a patched libavformat in the build tree; all other prebuilt libs stay intact.
+include(${CMAKE_CURRENT_SOURCE_DIR}/cmake/ffmpeg_flv_compat.cmake)
 
 message(STATUS "FFmpeg: using prebuilt libraries from ${FFMPEG_PREBUILD_DIR}")
 
@@ -107,4 +110,5 @@ install(DIRECTORY ${FFMPEG_PREBUILD_DIR}/lib/
     DESTINATION lib
     FILES_MATCHING
         PATTERN "*.so*"
+        PATTERN "libavformat.so*" EXCLUDE
 )

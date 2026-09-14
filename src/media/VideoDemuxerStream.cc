@@ -54,9 +54,10 @@ namespace media {
         AVCodec* codec    = nullptr;
         video_stream_idx_ = av_find_best_stream(fmt_ctx_, AVMEDIA_TYPE_VIDEO, -1, -1, &codec, 0);
         if (video_stream_idx_ < 0 || !codec) {
+            const int stream_error = video_stream_idx_ < 0 ? video_stream_idx_ : AVERROR_DECODER_NOT_FOUND;
             SafeCloseContext();
             LOG_WARN("{}FindStream {} stream or codec error.[{}]", kTag, util::RedactRtspUrl(filename_),
-                     GetAvErr(ret));
+                     GetAvErr(stream_error));
             return util::ErrorEnum::DemuxFindVideoStreamFail;
         }
 

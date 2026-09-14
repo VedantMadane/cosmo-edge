@@ -20,10 +20,11 @@ test('GB access exposes only platform settings and devices/channels tabs', () =>
   assert.deepEqual(tabs, ['platform', 'devices'])
   assert.doesNotMatch(descriptor.template.content, /gbAccess\.(guideTab|step[1-4]|cameraServer|cameraUser|userMapping|channelMapping|cameraAutoAddress)/)
 })
-test('GB access stays in add-channel flow without a standalone button or trial banner', async () => {
+test('GB access has a shortcut next to Add and retains the add-channel entry without a trial banner', async () => {
   const page = await readFile(new URL('../src/views/gam/taskManager/index.vue', import.meta.url), 'utf8')
   const { descriptor: pageDescriptor } = parse(page)
-  assert.doesNotMatch(pageDescriptor.template.content, /@click="gb28181Dialog\.open\(\)"/)
+  assert.match(pageDescriptor.template.content, /id="onboarding-add-channel"[^>]*>[\s\S]*?<\/el-button>\s*<el-button id="gb28181-access"[^>]*@click="gb28181Dialog\.open\(\)"[^>]*>GB28181<\/el-button>/)
+  assert.equal((pageDescriptor.template.content.match(/id="gb28181-access"/g) || []).length, 1)
   assert.match(pageDescriptor.scriptSetup.content, /if \(val === 7\)\s*\{\s*channelDialogVisible\.value = false\s*nextTick\(\(\) => gb28181Dialog\.value\.open\(\)\)/)
   assert.doesNotMatch(descriptor.template.content, /gbAccess\.scope/)
 })

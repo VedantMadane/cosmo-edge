@@ -6,6 +6,7 @@
         <span></span>
         <div v-if="runMode == 0">
           <el-button id="onboarding-add-channel" size="small" type="primary" @click="addChannelClick">{{ t('action.add') }}</el-button>
+          <el-button id="gb28181-access" size="small" type="primary" :title="t('gbAccess.title')" @click="gb28181Dialog.open()">GB28181</el-button>
           <el-dropdown @command="handleBatchCommand" :disabled="multipleSelection.length == 0">
             <el-button size="small" type="primary" style="margin-left: 8px;" :disabled="multipleSelection.length == 0">
               {{ t('action.batchOperation') }}
