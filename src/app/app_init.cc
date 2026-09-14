@@ -48,7 +48,6 @@
 #include "service/face/impl/PersonRecogDaoServiceImpl.h"
 #include "service/infra/IDbService.h"
 #include "service/infra/ILinkageService.h"
-#include "service/infra/IMemoryPoolService.h"
 #include "service/infra/impl/DbServiceImpl.h"
 #include "service/infra/impl/LinkageServiceImpl.h"
 #include "service/infra/impl/MemoryPoolServiceImpl.h"
@@ -128,7 +127,7 @@ static void RegisterInfrastructureServices() {
     auto eventNotifier = std::make_unique<cosmo::service::EventNotifierImpl>();
     registry.Register<cosmo::service::IEventNotifier>(std::move(eventNotifier));
 
-    registry.Register<cosmo::service::IMemoryPoolService>(
+    registry.Register<cosmo::service::MemoryPoolServiceImpl>(
         std::make_unique<cosmo::service::MemoryPoolServiceImpl>());
 
     registry.Register<cosmo::service::IStorageCleanService>(
