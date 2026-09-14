@@ -54,7 +54,8 @@ class BuildEntrypointTests(unittest.TestCase):
                           'config/rockchip-build', 'tools/rknn'):
             (self.root / directory).mkdir(parents=True, exist_ok=True)
         for script in ('build.sh', 'build_sophon_package.sh', 'build_rknn.sh',
-                       'build_rockchip_package.sh', 'verify_package_contents.py'):
+                       'build_rockchip_package.sh', 'verify_package_contents.py',
+                       'verify_model_guard_v2_sdk.py'):
             shutil.copy2(REPOSITORY / 'scripts' / script, self.root / 'scripts' / script)
         for chip in ('bm1688', 'cv186x', 'x86'):
             (self.root / 'data/resource' / ('aiboxresource_' + chip)).mkdir(parents=True)
@@ -69,7 +70,14 @@ class BuildEntrypointTests(unittest.TestCase):
             (self.root / 'tools/rknn' / name).write_text(
                 "import json,os,sys\nwith open(os.environ['CALL_LOG'],'a') as f: f.write(json.dumps({'tool':sys.argv[0].split('/')[-1],'argv':sys.argv[1:]})+'\\n')\n")
         self.write_executable('fake-bin/cmake', FAKE_CMAKE)
-        self.write_executable('fake-bin/aarch64-linux-gnu-readelf', '#!/bin/sh\nexit 1\n')
+        # SDK admission uses real ELF inspection, even though CMake is a double.
+        for tool in ('readelf', 'nm'):
+            executable = shutil.which('aarch64-linux-gnu-' + tool) or shutil.which(tool)
+            self.assertIsNotNone(executable, 'ELF inspection tool is required: ' + tool)
+            (self.root / ('fake-bin/aarch64-linux-gnu-' + tool)).symlink_to(executable)
+        bundled_sdk = REPOSITORY / 'prebuild/model-guard-v2'
+        for destination in ('prebuild/model-guard-v2', 'SDK with spaces'):
+            shutil.copytree(bundled_sdk, self.root / destination, symlinks=True)
         self.log = self.root / 'calls.jsonl'
         self.env = dict(os.environ, PROJECT_ROOT_PATH=str(self.root),
                         PATH=str(self.root / 'fake-bin') + os.pathsep + os.environ['PATH'],
@@ -79,6 +87,7 @@ class BuildEntrypointTests(unittest.TestCase):
                         COSMO_MODEL_GUARD_BUILD_PROFILE='public-runtime')
         self.fixture_case = package_tests.PackageProfileTests()
         self.addCleanup(self.fixture_case.doCleanups)
+        self.fixture_case.setUp()
 
     def write_executable(self, relative, text):
         path = self.root / relative
@@ -183,6 +192,55 @@ class BuildEntrypointTests(unittest.TestCase):
                                   '-DCOSMO_PACKAGE_MODELS=preserve'):
                         self.assertIn(value, configuration)
                     self.assert_export(chip, profile)
+
+    def test_sophon_default_sdk_ignores_implicit_production_cache(self):
+        self.env.pop('COSMO_MODEL_GUARD_SDK_ROOT')
+        self.env['COSMO_MODEL_GUARD_BUILD_PROFILE'] = 'production-release'
+        cache_root = Path('/build_output')
+        if not cache_root.is_dir():
+            self.skipTest('/build_output is not mounted; implicit cache regression requires it')
+        cache = cache_root / 'model-guard-sdk-production'
+        if not cache.exists():
+            cache.mkdir()
+            # Never modify an existing cache or remove content created by another process.
+            def remove_empty_created_cache():
+                try:
+                    cache.rmdir()
+                except OSError:
+                    pass
+            self.addCleanup(remove_empty_created_cache)
+        self.assertTrue(cache.is_dir(), 'implicit production cache must be a directory')
+        self.fixture('bm1688', 'production-release')
+        result = self.run_script('build_sophon_package.sh', '--chip', 'bm1688')
+        expected = str(self.root / 'prebuild/model-guard-v2')
+        self.assertIn('verified_sdk_root=' + expected, result.stdout)
+        configuration = next(call['argv'] for call in self.calls() if call['tool'] == 'cmake')
+        self.assertIn('-DCOSMO_MODEL_GUARD_SDK_ROOT=' + expected, configuration)
+        self.assert_export('bm1688', 'production-release')
+
+    def test_sophon_invalid_override_preserves_install_and_never_invokes_cmake(self):
+        self.env['COSMO_MODEL_GUARD_BUILD_PROFILE'] = 'production-release'
+        sdk = Path(self.env['COSMO_MODEL_GUARD_SDK_ROOT'])
+        # Start from the genuine release, then invalidate one input at a time.
+        for name in ('bin/cosmo-model-provision', 'SDK-MANIFEST.json',
+                     'lib/libcosmo_model_guard.so.2.0.0'):
+            with self.subTest(component=name):
+                self.reset_outputs()
+                sentinel = self.root / 'build/install/previous-install'
+                sentinel.parent.mkdir(parents=True)
+                sentinel.write_bytes(b'preserve previous successful installation')
+                component = sdk / name
+                original = component.read_bytes()
+                try:
+                    component.write_bytes(b'invalid release component')
+                    result = self.run_script('build_sophon_package.sh', '--chip', 'bm1688',
+                                             success=False)
+                finally:
+                    component.write_bytes(original)
+                self.assertIn('SDK verification failed', result.stderr)
+                self.assertEqual(self.calls(), [])
+                self.assertEqual(sentinel.read_bytes(), b'preserve previous successful installation')
+                self.assertFalse((self.root / 'export').exists())
 
     def test_sophon_compatibility_and_development(self):
         resources = self.root / 'custom resource bm1688 name'

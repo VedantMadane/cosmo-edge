@@ -268,6 +268,8 @@ if(COSMO_MODEL_GUARD AND COSMO_MODEL_GUARD_PLATFORM STREQUAL "sophon")
         "${COSMO_MODEL_GUARD_SDK_ROOT}/include/cosmo_model_guard_v2.h")
     set(MODEL_GUARD_V2_LIBRARY
         "${COSMO_MODEL_GUARD_SDK_ROOT}/lib/libcosmo_model_guard.so.2.0.0")
+    set(MODEL_GUARD_V2_SDK_MANIFEST
+        "${COSMO_MODEL_GUARD_SDK_ROOT}/SDK-MANIFEST.json")
     if(COSMO_MODEL_GUARD_BUILD_PROFILE STREQUAL "production-release")
         set(MODEL_GUARD_V2_PROVISION_TOOL
             "${COSMO_MODEL_GUARD_SDK_ROOT}/bin/cosmo-model-provision")
@@ -302,7 +304,9 @@ if(COSMO_MODEL_GUARD AND COSMO_MODEL_GUARD_PLATFORM STREQUAL "sophon")
         "${CMAKE_SOURCE_DIR}/scripts/verify_model_guard_v2_sdk.py")
     if(COSMO_MODEL_GUARD_BUILD_PROFILE STREQUAL "production-release")
         list(APPEND MODEL_GUARD_V2_ADMISSION_INPUTS
-            "${MODEL_GUARD_V2_PROVISION_TOOL}")
+            "${MODEL_GUARD_V2_PROVISION_TOOL}"
+            "${MODEL_GUARD_V2_SDK_MANIFEST}"
+            "${CMAKE_SOURCE_DIR}/prebuild/model-guard-v2/SDK-MANIFEST.json")
     endif()
     set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS
         ${MODEL_GUARD_V2_ADMISSION_INPUTS})
@@ -1032,6 +1036,9 @@ if(COSMO_MODEL_GUARD AND COSMO_MODEL_GUARD_PLATFORM STREQUAL "sophon")
         PERMISSIONS OWNER_WRITE OWNER_READ OWNER_EXECUTE GROUP_READ GROUP_EXECUTE
     )
     if(COSMO_MODEL_GUARD_BUILD_PROFILE STREQUAL "production-release")
+        install(FILES "${MODEL_GUARD_V2_SDK_MANIFEST}"
+            DESTINATION share/cosmo-model-guard
+            PERMISSIONS OWNER_WRITE OWNER_READ GROUP_READ WORLD_READ)
         install(PROGRAMS "${MODEL_GUARD_V2_PROVISION_TOOL}"
             DESTINATION bin
             RENAME cosmo-model-provision
