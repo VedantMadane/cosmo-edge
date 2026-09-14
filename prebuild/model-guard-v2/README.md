@@ -47,7 +47,10 @@ runtime, its private implementation, provisioning inputs, or signing material.
 ## Integrated runtime update
 
 The currently integrated `libcosmo_model_guard.so.2.0.0` SHA-256 is
-`db961509851571a91d18dce378fda92b4f7a5736af7df5d4901a3dac87937f39`.
+`568bbc836180f5528fc343a5fd969c7b754d7f86f87be02ca5c4c1f1912bea3e`.
+This build includes the current `release/v2.3` changes and the Sophon serial
+fix from private source commit `4a46ba754781115ace624cca4be556063b2840c0`.
+The matching provisioner supports `status --store-dir`.
 It adds Sophon SoC serial normalization: after trimming trailing NUL and
 whitespace, valid hexadecimal text shorter than 32 characters is right-padded
 with ASCII `0`, and longer text is truncated to its first 32 characters.
@@ -56,7 +59,7 @@ Existing valid 32-character identities and the public ABI are unchanged.
 The independent RKNN OTP implementation is unchanged.
 
 The matching provisioning tool SHA-256 is
-`b1bdac12517b48a9cbc0586ac11814780f4d8e182d02f7fc4d255ba21553d13b`.
+`5a2f80e14359421626eccd88d476aef2a2d84d00383ffc63957baf082ea3e41a`.
 Production builds need this matching tool in `bin/cosmo-model-provision`;
 it remains a local, ignored input and is not part of the public SDK.
 The original distribution references above describe the original integration,
