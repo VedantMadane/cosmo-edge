@@ -30,7 +30,7 @@
 
           <!-- switch 新加 -->
           <el-form-item
-            v-if="item.type == 'switch' && item.isColumn == true && showLegacyParam(item) && showForm(item.senior)">
+            v-if="item.type == 'switch' && item.isColumn == true && showForm(item.senior)">
             <template #label>
               <span style="position:relative">
                 <span>{{ resolveParamText(item, 'name') }}</span>
@@ -72,7 +72,7 @@
 
           <!-- radio组 -->
           <el-form-item
-            v-if="item.type == 'radio' && item.isColumn == true && showLegacyParam(item) && showForm(item.senior)">
+            v-if="item.type == 'radio' && item.isColumn == true && showForm(item.senior)">
             <template #label>
               <span style="position:relative">
                 <span>{{ resolveParamText(item, 'name') }}</span>
@@ -133,7 +133,7 @@
           <!-- 输入框组 -->
           <el-form label-position="right" size="small" :model="item" :label-width="labelWidth ? labelWidth : defaultLabelWidth"
             @submit.prevent
-            v-if="(item.type == 'number' || item.type == 'text') && showLegacyParam(item)">
+            v-if="(item.type == 'number' || item.type == 'text')">
             <el-form-item
               v-if="(item.type == 'number' || item.type == 'text') && item.isColumn == true && item.key !== 'LeadsRadio' && showForm(item.senior)"
               prop="value"
@@ -272,7 +272,7 @@
           <div
             v-if="(item.type == 'switch' || item.type == 'select') && showForm(item.senior) && item.children.length > 0">
             <div v-for="(el, childIdx) in item.children" :key="childIdx">
-              <el-form v-if="showChildParam(item, el)" :disabled="disableChildParam(item, el)" label-position="right"
+              <el-form :disabled="disableChildParam(item, el)" label-position="right"
                 size="small" :model="el" :label-width="labelWidth ? labelWidth : defaultLabelWidth" @submit.prevent>
                 <!-- select  -->
                 <el-form-item v-if="el.type == 'select' && el.isColumn == true && showForm(el.senior)">
@@ -551,7 +551,6 @@ import {
   flattenTaskParamTree,
   getParamDependencyCycleBreakIndexes,
   getParamDependencyKey,
-  isLegacyUnrenderedParam,
   resolveChannelEditableFlags,
   serializeTaskParamTree
 } from '@/utils/taskParamOwnership'
@@ -616,21 +615,12 @@ const distanceDialogVisible = ref(false)
 
 const showForm = computed(() => {
   return (senior) => {
-    const platformType = localStorage.getItem('platformType')
-    const isPlatform = platformType == 1
     if (props.isHigher) return true
     if (senior == 2) return false
-    if (isPlatform && senior == -1) return false
-    if (!isPlatform && senior == 1) return false
+    if (senior == 1) return false
     return true
   }
 })
-
-const getPlatformType = () => localStorage.getItem('platformType')
-
-const showLegacyParam = (param) =>
-  !isLegacyUnrenderedParam(param) ||
-  String(getPlatformType() ?? '') !== '1'
 
 const dependencyMatches = (parent, child) => {
   // Preserve the legacy form's loose matching for numeric/string switch values.
@@ -638,96 +628,49 @@ const dependencyMatches = (parent, child) => {
   return child?.dependsOn?.value == parent?.value
 }
 
-const isEdgeChannelEditor = () => String(getPlatformType() ?? '') !== '1'
-const showChildParam = (parent, child) =>
-  isEdgeChannelEditor() || dependencyMatches(parent, child)
-const disableChildParam = (parent, child) =>
-  isEdgeChannelEditor() && !dependencyMatches(parent, child)
+const disableChildParam = (parent, child) => !dependencyMatches(parent, child)
 
 const getCurrentParams = () => {
   const currentParams =
     props.modelValue && props.modelValue.length > 0
       ? props.modelValue
       : props.params
-  return filterChannelEditableParams(currentParams, getPlatformType())
+  return filterChannelEditableParams(currentParams)
 }
 
 const init = () => {
-  let custId = window.localStorage.getItem('taskCustId')
-    ? window.localStorage.getItem('taskCustId')
-    : window.localStorage.getItem('currentCustId')
-
-  const param = { name: '' }
-  let platformType = localStorage.getItem('platformType')
-  if (platformType == '1') {
-    param.custId = custId ? custId : ''
-  }
-
-  // 使用modelValue或params，优先使用modelValue
   const currentParams = getCurrentParams()
 
   currentParams.forEach((item) => {
     if (item.type == 'commoditySet') {
-      if (platformType == '15') {
-        proxy.$API.boxQueryThingsLibInfo({ pageNum: 1, pageSize: 1000 }).then((res) => {
-          const { resData } = res
-          networkOptions.value = resData?.thingsLibList.map((obj) => ({
-            label: obj.name,
-            value: obj.id
-          }))
-          item.value = item.value ? item.value : networkOptions.value[0]?.value
-        })
-      } else {
-        proxy.$API.machineMaterialGroupList(param).then((res) => {
-          const { resData } = res
-          networkOptions.value = resData.map((obj) => ({
-            label: obj.name,
-            value: obj.groupId
-          }))
-          item.value = item.value ? item.value : networkOptions.value[0]?.value
-        })
-      }
+      proxy.$API.boxQueryThingsLibInfo({ pageNum: 1, pageSize: 1000 }).then((res) => {
+        const { resData } = res
+        networkOptions.value = resData?.thingsLibList.map((obj) => ({
+          label: obj.name,
+          value: obj.id
+        }))
+        item.value = item.value ? item.value : networkOptions.value[0]?.value
+      })
     } else if (item.type == 'workClothesSet') {
-      if (platformType == '15') {
-        proxy.$API.boxQueryPersonLibInfo({ pageNum: 1, pageSize: 1000 }).then((res) => {
-          const { resData } = res
-          networkOptions.value = resData?.personLibList.map((obj) => ({
-            label: obj.name,
-            value: obj.id
-          }))
-          item.value = item.value ? item.value : networkOptions.value[0]?.value
-        })
-      } else {
-        proxy.$API.workClothesList(param).then((res) => {
-          const { resData } = res
-          networkOptions.value = resData.map((obj) => ({
-            label: obj.name,
-            value: obj.id
-          }))
-          item.value = item.value ? item.value : networkOptions.value[0]?.value
-        })
-      }
+      proxy.$API.boxQueryPersonLibInfo({ pageNum: 1, pageSize: 1000 }).then((res) => {
+        const { resData } = res
+        networkOptions.value = resData?.personLibList.map((obj) => ({
+          label: obj.name,
+          value: obj.id
+        }))
+        item.value = item.value ? item.value : networkOptions.value[0]?.value
+      })
     } else if (item.type == 'faceSet') {
-      if (platformType == '15') {
-        proxy.$API.boxQueryFaceLibInfo({ pageNum: 1, pageSize: 1000 }).then((res) => {
-          const { resData } = res
-          FaceSets.value = resData?.faceLibList.map((obj) => ({
-            faceSetName: obj.name,
-            faceSetId: obj.id
-          }))
-          nextTick(() => {
-            handleTransferData()
-          })
+      proxy.$API.boxQueryFaceLibInfo({ pageNum: 1, pageSize: 1000 }).then((res) => {
+        const { resData } = res
+        FaceSets.value = resData?.faceLibList.map((obj) => ({
+          faceSetName: obj.name,
+          faceSetId: obj.id
+        }))
+        nextTick(() => {
+          handleTransferData()
         })
-      } else {
-        proxy.$API.queryFaceSetName(param).then((res) => {
-          const { resData } = res
-          FaceSets.value = resData
-          nextTick(() => {
-            handleTransferData()
-          })
-        })
-      }
+      })
     }
   })
 }
@@ -772,10 +715,7 @@ const handleTransferData = () => {
 const switchMethods = (data) => {
   let arr = []
   const editableKeys = new Set(data.map((item) => String(item.key)))
-  const isPlatform = String(getPlatformType() ?? '') === '1'
-  const cycleBreakIndexes = isPlatform
-    ? new Set()
-    : getParamDependencyCycleBreakIndexes(data)
+  const cycleBreakIndexes = getParamDependencyCycleBreakIndexes(data)
   data.forEach((item, itemIndex) => {
     if (item.type == 'slider') {
       item.value = Number(item.value)
@@ -784,7 +724,7 @@ const switchMethods = (data) => {
     data.forEach((el, childIndex) => {
       if (
         item.key == getParamDependencyKey(el) &&
-        (isPlatform || !cycleBreakIndexes.has(childIndex))
+        !cycleBreakIndexes.has(childIndex)
       ) {
         item.children.push(el)
       }
@@ -792,8 +732,8 @@ const switchMethods = (data) => {
     const dependencyKey = getParamDependencyKey(item)
     if (
       dependencyKey === undefined ||
-      (!isPlatform && cycleBreakIndexes.has(itemIndex)) ||
-      (!isPlatform && !editableKeys.has(dependencyKey))
+      cycleBreakIndexes.has(itemIndex) ||
+      !editableKeys.has(dependencyKey)
     ) {
       arr.push(item)
     }
@@ -880,8 +820,7 @@ const handleSliderChange = () => {
 
 const dependsOn = (newVal) => {
   const data = filterChannelEditableParams(
-    JSON.parse(JSON.stringify(newVal || [])),
-    getPlatformType()
+    JSON.parse(JSON.stringify(newVal || []))
   )
   for (var i = 0; i < data.length - 1; i++) {
     for (var j = i + 1; j < data.length; j++) {
@@ -995,13 +934,7 @@ const validInput = (obj) => {
   console.log('validInput 接收到的数据:', JSON.parse(JSON.stringify(obj)))
 
   if (obj && obj.length) {
-    let platformType = localStorage.getItem('platformType')
-    const arr =
-      platformType == 1
-        ? obj
-        : filterTaskParamsForSubmission(
-          filterChannelEditableParams(obj, platformType)
-        )
+    const arr = filterTaskParamsForSubmission(filterChannelEditableParams(obj))
 
     console.log('过滤后的验证数据:', JSON.parse(JSON.stringify(arr)))
 
@@ -1066,10 +999,7 @@ const handleDistanceConfirm = (val) => {
 const buildStructureSignature = (arr) => {
   try {
     const list = Array.isArray(arr) ? arr : []
-    const ownershipFlags =
-      String(getPlatformType() ?? '') === '1'
-        ? list.map(() => true)
-        : resolveChannelEditableFlags(list)
+    const ownershipFlags = resolveChannelEditableFlags(list)
     return JSON.stringify(
       list.map((i, index) => ({
         key: i.key,

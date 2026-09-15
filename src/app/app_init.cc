@@ -51,7 +51,6 @@
 #include "service/gb28181/impl/Gb28181SourceServiceImpl.h"
 #include "service/infra/IDbService.h"
 #include "service/infra/ILinkageService.h"
-#include "service/infra/IMemoryPoolService.h"
 #include "service/infra/impl/DbServiceImpl.h"
 #include "service/infra/impl/LinkageServiceImpl.h"
 #include "service/infra/impl/MemoryPoolServiceImpl.h"
@@ -133,7 +132,7 @@ static void RegisterInfrastructureServices() {
     auto eventNotifier = std::make_unique<cosmo::service::EventNotifierImpl>();
     registry.Register<cosmo::service::IEventNotifier>(std::move(eventNotifier));
 
-    registry.Register<cosmo::service::IMemoryPoolService>(
+    registry.Register<cosmo::service::MemoryPoolServiceImpl>(
         std::make_unique<cosmo::service::MemoryPoolServiceImpl>());
 
     registry.Register<cosmo::service::IStorageCleanService>(
@@ -373,7 +372,9 @@ static void InitializeExternalComponents() {
 #ifndef COSMO_DEV_MODE
     // Hardware watchdog — feeds /dev/watchdog to prevent system reset on hang.
     // Disabled in development builds (COSMO_DEV_MODE) to avoid device resets during debugging.
-    cosmo::service::ServiceRegistry::Instance().Get<cosmo::service::IWatchDogService>().Start();
+    if (!cosmo::service::ServiceRegistry::Instance().Get<cosmo::service::IWatchDogService>().Start()) {
+        LOG_ERRO("{}", "Hardware watchdog failed to start; watchdog protection is unavailable");
+    }
 #else
     LOG_WARN("{}", "Watchdog disabled (COSMO_DEV_MODE build)");
 #endif
@@ -395,8 +396,11 @@ static void StopExternalComponents() {
     // returns non-owning references, so registry destruction is only safe after
     // ingress and background producers have joined their worker threads.
     if (registry.Has<cosmo::service::IWatchDogService>()) {
-        stop("hardware watchdog",
-             [&registry]() { static_cast<void>(registry.Get<cosmo::service::IWatchDogService>().Stop()); });
+        stop("hardware watchdog", [&registry]() {
+            if (!registry.Get<cosmo::service::IWatchDogService>().Stop()) {
+                LOG_ERRO("{}", "Hardware watchdog shutdown not confirmed");
+            }
+        });
     }
     if (registry.Has<cosmo::service::INetworkService>()) {
         stop("HTTP server",
