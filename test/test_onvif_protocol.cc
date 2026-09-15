@@ -50,7 +50,12 @@ struct ConfigRoot {
 // A SOAP camera that rejects empty POST probes, as WSSE-only cameras do.
 class SoapCamera {
 public:
-    explicit SoapCamera(bool digest = false) : requireDigest(digest) {
+    explicit SoapCamera(bool digest = false, std::string profiles = "", std::string encoder = "",
+                        bool streamUri = true)
+        : requireDigest(digest),
+          profiles_(std::move(profiles)),
+          encoder_(std::move(encoder)),
+          stream_uri_(streamUri) {
         listener = socket(AF_INET, SOCK_STREAM | SOCK_CLOEXEC, 0);
         sockaddr_in address{};
         address.sin_family      = AF_INET;
@@ -71,6 +76,7 @@ public:
     std::string endpoint;
     std::atomic<int> emptyPosts{0};
     std::atomic<int> authenticatedPosts{0};
+    std::atomic<int> streamRequests{0};
 
 private:
     void Serve() {
@@ -128,13 +134,21 @@ private:
                     operation = "GetProfiles";
                     ns        = media;
                     inner =
-                        "<Profiles "
-                        "token=\"main\"><Name>Main</Name><VideoEncoderConfiguration><Encoding>H264</"
-                        "Encoding></VideoEncoderConfiguration></Profiles>";
+                        profiles_.empty()
+                            ? "<Profiles "
+                              "token=\"main\"><Name>Main</Name><VideoEncoderConfiguration><Encoding>H264</"
+                              "Encoding><Resolution><Width>1920</Width><Height>1080</Height></Resolution>"
+                              "</VideoEncoderConfiguration></Profiles>"
+                            : profiles_;
+                } else if (body.find("<t:GetVideoEncoderConfiguration") != std::string::npos) {
+                    operation = "GetVideoEncoderConfiguration";
+                    ns        = media;
+                    inner     = encoder_;
                 } else if (body.find("<t:GetStreamUri") != std::string::npos) {
+                    ++streamRequests;
                     operation = "GetStreamUri";
                     ns        = media;
-                    inner     = "<MediaUri><Uri>rtsp://127.0.0.1:554/live</Uri></MediaUri>";
+                    inner = stream_uri_ ? "<MediaUri><Uri>rtsp://127.0.0.1:554/live</Uri></MediaUri>" : "";
                 }
                 const auto xml = Envelope("<t:" + operation + "Response xmlns:t=\"" + ns + "\">" + inner +
                                           "</t:" + operation + "Response>");
@@ -153,6 +167,9 @@ private:
     }
     int listener{-1};
     const bool requireDigest;
+    const std::string profiles_;
+    const std::string encoder_;
+    const bool stream_uri_;
     std::atomic<bool> stopping{false};
     std::thread worker;
 };
@@ -216,6 +233,150 @@ TEST_CASE("ONVIF rejects malformed and entity-bearing XML", "[onvif]") {
     CHECK_THROWS(Parse("<broken>"));
     CHECK_THROWS(Parse(std::string(1024 * 1024 + 1, 'x')));
     CHECK_THROWS(Parse("<Envelope/>"));
+}
+TEST_CASE("ONVIF retains video profiles missing encoder metadata", "[onvif][onvif-incomplete]") {
+    const auto xml = Envelope(
+        R"(<GetProfilesResponse><Profiles token="main"><Name>Main</Name><VideoSourceConfiguration><SourceToken>sensor</SourceToken></VideoSourceConfiguration></Profiles><Profiles token="audio"><AudioSourceConfiguration/></Profiles><Profiles><VideoSourceConfiguration/></Profiles></GetProfilesResponse>)");
+    const auto profiles = ParseProfiles(xml);
+    REQUIRE(profiles.size() == 1);
+    CHECK(profiles[0]["token"] == "main");
+    CHECK(profiles[0]["videoSourceToken"] == "sensor");
+    CHECK(profiles[0]["codec"] == "");
+    CHECK(profiles[0]["width"] == 0);
+}
+namespace {
+const std::string kIncompleteProfile =
+    "<Profiles token=\"main\"><Name>Main</Name><VideoSourceConfiguration>"
+    "<SourceToken>sensor</SourceToken></VideoSourceConfiguration></Profiles>";
+Config CameraConfig(const SoapCamera& camera) {
+    Config config;
+    config.endpoint = camera.endpoint;
+    config.username = "test-user";
+    config.password = "test-password";
+    return config;
+}
+nlohmann::json HevcMetadata() {
+    return {{"codec", "H265"}, {"width", 1920}, {"height", 1080}, {"fps", 25}};
+}
+}  // namespace
+
+TEST_CASE("ONVIF fills missing HEVC metadata through authenticated RTSP", "[onvif][onvif-incomplete]") {
+    SoapCamera camera(false, kIncompleteProfile);
+    auto config                    = CameraConfig(camera);
+    config.separateRtspCredentials = true;
+    config.rtspUsername            = "stream-user";
+    config.rtspPassword            = "stream@password";
+    int calls                      = 0;
+    const auto result              = Client(config, nullptr, [&](const auto& uri, auto deadline, auto*) {
+                            ++calls;
+                            CHECK(uri == "rtsp://stream-user:stream%40password@127.0.0.1:554/live");
+                            const auto remaining = deadline - std::chrono::steady_clock::now();
+                            CHECK(remaining > std::chrono::seconds(0));
+                            CHECK(remaining <= std::chrono::seconds(5));
+                            auto metadata   = HevcMetadata();
+                            metadata["url"] = uri;
+                            return metadata;
+                        }).Probe();
+    REQUIRE(result["profiles"].size() == 1);
+    CHECK(result["profiles"][0]["codec"] == "H265");
+    CHECK(result["profiles"][0]["width"] == 1920);
+    CHECK(result["profiles"][0]["videoSourceToken"] == "sensor");
+    CHECK(result.dump().find("password") == std::string::npos);
+    CHECK_FALSE(result["profiles"][0].contains("encoderToken"));
+    CHECK(calls == 1);
+    CHECK(camera.streamRequests.load() == 1);
+}
+
+TEST_CASE("ONVIF complete profiles do not open RTSP during addition", "[onvif][onvif-incomplete]") {
+    SoapCamera camera;
+    int calls = 0;
+    CHECK_NOTHROW(Client(CameraConfig(camera), nullptr, [&](const auto&, auto, auto*) {
+                      ++calls;
+                      return HevcMetadata();
+                  }).Probe());
+    CHECK(calls == 0);
+    CHECK(camera.streamRequests.load() == 0);
+}
+
+TEST_CASE("ONVIF supplements only an explicitly linked encoder configuration", "[onvif][onvif-incomplete]") {
+    SoapCamera camera(false,
+                      "<Profiles token=\"main\"><VideoEncoderConfiguration token=\"encoder\"/></Profiles>",
+                      "<Configuration token=\"encoder\"><Encoding>H265</Encoding><Resolution>"
+                      "<Width>1920</Width><Height>1080</Height></Resolution></Configuration>");
+    int calls         = 0;
+    const auto result = Client(CameraConfig(camera), nullptr, [&](const auto&, auto, auto*) {
+                            ++calls;
+                            return HevcMetadata();
+                        }).Probe();
+    CHECK(result["profiles"][0]["codec"] == "H265");
+    CHECK(calls == 0);
+    CHECK(camera.streamRequests.load() == 0);
+}
+
+TEST_CASE("ONVIF unsupported optional configuration query falls back to RTSP", "[onvif][onvif-incomplete]") {
+    SoapCamera camera(false,
+                      "<Profiles token=\"main\"><VideoEncoderConfiguration token=\"encoder\"/></Profiles>");
+    const auto result = Client(CameraConfig(camera), nullptr, [](const auto&, auto, auto*) {
+                            return HevcMetadata();
+                        }).Probe();
+    CHECK(result["profiles"][0]["codec"] == "H265");
+    CHECK(camera.streamRequests.load() == 1);
+}
+
+TEST_CASE("ONVIF incomplete profiles report URI and media failures distinctly", "[onvif][onvif-incomplete]") {
+    SECTION("no URI") {
+        SoapCamera camera(false, kIncompleteProfile, "", false);
+        CHECK_THROWS_WITH(Client(CameraConfig(camera)).Probe(), "stream_uri_failed");
+    }
+    SECTION("media unavailable") {
+        SoapCamera camera(false, kIncompleteProfile);
+        CHECK_THROWS_WITH(Client(CameraConfig(camera), nullptr,
+                                 [](const auto&, auto, auto*) -> nlohmann::json {
+                                     throw std::runtime_error("stream_probe_failed");
+                                 })
+                              .Probe(),
+                          "stream_probe_failed");
+    }
+    SECTION("authentication failure stops further attempts") {
+        SoapCamera camera(false, kIncompleteProfile + kIncompleteProfile);
+        CHECK_THROWS_WITH(Client(CameraConfig(camera), nullptr,
+                                 [](const auto&, auto, auto*) -> nlohmann::json {
+                                     throw std::runtime_error("rtsp_unauthorized");
+                                 })
+                              .Probe(),
+                          "rtsp_unauthorized");
+        CHECK(camera.streamRequests.load() == 1);
+    }
+}
+
+TEST_CASE("ONVIF one failed profile does not hide another usable stream", "[onvif][onvif-incomplete]") {
+    SoapCamera camera(false, kIncompleteProfile + kIncompleteProfile);
+    int calls         = 0;
+    const auto result = Client(CameraConfig(camera), nullptr, [&](const auto&, auto, auto*) {
+                            if (++calls == 1)
+                                throw std::runtime_error("stream_probe_failed");
+                            return HevcMetadata();
+                        }).Probe();
+    CHECK(result["profiles"][1]["codec"] == "H265");
+    CHECK(calls == 2);
+}
+
+TEST_CASE("ONVIF limits fallback work and does not invent video dimensions", "[onvif][onvif-incomplete]") {
+    std::string profiles;
+    for (int i = 0; i < 10; ++i)
+        profiles += kIncompleteProfile;
+    SoapCamera camera(false, profiles);
+    int calls = 0;
+    CHECK_THROWS_WITH(Client(CameraConfig(camera), nullptr,
+                             [&](const auto&, auto, auto*) {
+                                 ++calls;
+                                 auto metadata     = HevcMetadata();
+                                 metadata["width"] = 0;
+                                 return metadata;
+                             })
+                          .Probe(),
+                      "stream_probe_failed");
+    CHECK(calls == 4);
 }
 TEST_CASE("ONVIF request serialization does not expose submitted passwords", "[onvif]") {
     cosmo::camera::MsgOnvifSaveRecv request;

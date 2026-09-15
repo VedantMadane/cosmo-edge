@@ -37,7 +37,16 @@ namespace media {
     }
 
     bool VideoDemuxer::StopRequested() const {
-        return stop_requested_.load() || util::ProcessShutdown::Requested();
+        return stop_requested_.load() || util::ProcessShutdown::Requested() ||
+               (io_running_ && !io_running_->load()) ||
+               (io_deadline_ != std::chrono::steady_clock::time_point::max() &&
+                std::chrono::steady_clock::now() >= io_deadline_);
+    }
+
+    void VideoDemuxer::SetIoDeadline(std::chrono::steady_clock::time_point deadline,
+                                     const std::atomic<bool>* running) {
+        io_deadline_ = deadline;
+        io_running_  = running;
     }
 
     int VideoDemuxer::InterruptIo(void* opaque) {

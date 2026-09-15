@@ -12,6 +12,8 @@ ONVIF discovers cameras, reads video Profiles and resolves RTSP addresses. Video
 
 New channels automatically select a Profile with valid dimensions and H264/H265/MJPEG encoding: highest resolution first, then highest frame rate, preferring H264 when both are equal. Names are not used to infer main/sub streams, and camera encoding settings are not changed. Editing prefers the existing Profile. The simplified UI does not expose Profile selection; the underlying API still accepts explicit Profiles.
 
+Some cameras omit encoder configuration from their video Profiles in H265 mode. Profiles with a video source are retained: the platform first queries an explicitly linked encoder configuration, then briefly probes the RTSP stream with the existing media module if metadata is still incomplete. This reads actual codec, dimensions and frame rate using the ONVIF credentials or configured separate RTSP credentials, without creating a preview, analysis task or changing camera settings. Complete Profiles do not trigger RTSP probing. Each request supplements at most four incomplete Profiles, with at most five seconds per RTSP probe and a shared twenty-second budget for all queries. Existing codec and resolution validation still applies.
+
 Duplicate endpoint/Profile pairs are rejected. Stream and result columns are omitted; failures appear below the corresponding channel name without blocking other devices. Correct that row's credentials and add again to retry. Repeated discovery preserves edited names and credentials. Successfully saved rows are skipped. Row passwords are cleared from memory after successful addition or dialog closure and are not persisted in the browser. Cancel stops pending work but does not abort an in-flight request; dispatched saves retain their success results.
 
 ## Maintenance
@@ -19,6 +21,7 @@ Duplicate endpoint/Profile pairs are rejected. Stream and result columns are omi
 - Editing changes a channel's name, endpoint or credentials. Empty password fields preserve existing secrets. Saving automatically queries the stream again and causes active video to resolve its address again.
 - Authentication failures may indicate a separate ONVIF user, insufficient permissions or clock skew. The client compensates its request timestamp without changing the camera clock.
 - If Profile discovery succeeds but video fails, check RTSP permissions, credentials, ports and codec support. SOAP authentication does not prove RTSP authentication.
+- During addition, an RTSP URL retrieval error points to the ONVIF service; a video metadata probe error points to RTSP or the actual stream; an RTSP authentication error requires checking video permissions and separate RTSP credentials. Discovery alone does not validate credentials.
 - For missing discoveries, check edge-device interfaces, UDP 3702 and multicast routing, or use manual entry.
 - Requests have bounded timeouts, concurrency limits and retry backoff. Existing scene assignments remain reusable after recovery or credential changes.
 - Compare latency using the same Profile, codec, frame rate, GOP and player. ONVIF ultimately uses RTSP and adds no video transcoding pipeline.

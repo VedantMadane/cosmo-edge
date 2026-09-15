@@ -84,6 +84,7 @@ const makeRow = item => reactive({ key: ++sequence, channelName: '', endpoint: '
 const errorText = code => {
   const errors = {
     unauthorized: t('onvif.unauthorized'), timeout: t('onvif.timeout'), network_error: t('onvif.networkError'),
+    stream_uri_failed: t('onvif.streamUriFailed'), stream_probe_failed: t('onvif.streamProbeFailed'), rtsp_unauthorized: t('onvif.rtspUnauthorized'),
     invalid_endpoint: t('onvif.invalidEndpoint'), no_interface: t('onvif.noInterface'), no_profiles: t('onvif.noProfiles'),
     no_profile_selected: t('onvif.noProfiles'), duplicate_source: t('onvif.duplicate'), busy: t('onvif.busy'),
     storage_error: t('onvif.storageError'), source_not_found: t('onvif.sourceNotFound'),

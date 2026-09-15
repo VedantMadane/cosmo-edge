@@ -55,6 +55,10 @@ namespace media {
         void RequestStop();
         void ResetCancellation();
         bool StopRequested() const;
+        // Configure on the owning thread before OpenStream. The optional running
+        // flag must outlive this demuxer; neither setting changes during I/O.
+        void SetIoDeadline(std::chrono::steady_clock::time_point deadline,
+                           const std::atomic<bool>* running = nullptr);
 
         int GetWidth() const {
             return width_.load(std::memory_order_relaxed);
@@ -144,6 +148,8 @@ namespace media {
 
         bool key_frame_detected_;
         std::atomic<bool> stop_requested_{false};
+        std::chrono::steady_clock::time_point io_deadline_{std::chrono::steady_clock::time_point::max()};
+        const std::atomic<bool>* io_running_{nullptr};
     };
 
 }  // namespace media

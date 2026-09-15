@@ -4,6 +4,7 @@
 
 #include <atomic>
 #include <chrono>
+#include <functional>
 #include <memory>
 #include <nlohmann/json.hpp>
 #include <string>
@@ -37,9 +38,16 @@ nlohmann::json ParseProfiles(const std::string& xml);
 nlohmann::json Interfaces();
 nlohmann::json Discover(const std::string& address, int timeoutMs);
 
+// Internal seam: a short-lived RTSP metadata probe, never a preview/decoder session.
+using MetadataProbe = std::function<nlohmann::json(const std::string&, std::chrono::steady_clock::time_point,
+                                                   const std::atomic<bool>*)>;
+nlohmann::json ProbeStreamMetadata(const std::string& uri, std::chrono::steady_clock::time_point deadline,
+                                   const std::atomic<bool>* running);
+
 class Client {
 public:
-    explicit Client(Config config, const std::atomic<bool>* running = nullptr);
+    explicit Client(Config config, const std::atomic<bool>* running = nullptr,
+                    MetadataProbe metadataProbe = ProbeStreamMetadata);
     nlohmann::json Probe();
     std::string StreamUri();
 
@@ -47,11 +55,14 @@ private:
     std::string Call(const std::string& url, const std::string& ns, const std::string& operation,
                      const std::string& body, bool anonymous = false);
     void Prepare();
+    std::string PreparedStreamUri(const std::string& profileToken);
+    void CompleteProfile(nlohmann::json& profile);
     Config config_;
     const std::atomic<bool>* running_;
     std::chrono::steady_clock::time_point deadline_;
     std::string media_;
     std::string media2_;
     long time_offset_{0};
+    MetadataProbe metadata_probe_;
 };
 }  // namespace cosmo::service::onvif

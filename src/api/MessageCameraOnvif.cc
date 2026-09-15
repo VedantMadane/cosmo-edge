@@ -39,6 +39,9 @@ namespace {
                                                         "network_error",
                                                         "crypto_error",
                                                         "unsupported_stream",
+                                                        "stream_uri_failed",
+                                                        "stream_probe_failed",
+                                                        "rtsp_unauthorized",
                                                         "channel_save_failed"};
             const std::string code = error.what();
             response.resData       = {

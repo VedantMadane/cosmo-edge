@@ -14,6 +14,7 @@
 
 #include "catch_amalgamated.hpp"
 #include "media/VideoDemuxer.h"
+#include "service/onvif/impl/OnvifProtocol.h"
 #include "util/ProcessShutdown.h"
 
 namespace {
@@ -250,4 +251,31 @@ TEST_CASE("Cancellation is sticky until an explicit new worker lifecycle", "[med
     cosmo::util::ProcessShutdown::Request();
     CHECK(demuxer.OpenStream(true) != cosmo::util::ErrorEnum::Success);
     CHECK(demuxer.FindStream(true) != cosmo::util::ErrorEnum::Success);
+}
+
+TEST_CASE("ONVIF RTSP metadata probing stops at its deadline", "[onvif][demux-lifecycle]") {
+    StalledRtspPeer peer;
+    auto probing         = std::async(std::launch::async, [&] {
+        try {
+            cosmo::service::onvif::ProbeStreamMetadata(
+                peer.url, std::chrono::steady_clock::now() + std::chrono::milliseconds(300), nullptr);
+            return std::string("unexpected_success");
+        } catch (const std::exception& error) {
+            return std::string(error.what());
+        }
+    });
+    const bool connected = peer.WaitForConnection();
+    const bool bounded   = probing.wait_for(std::chrono::seconds(2)) == std::future_status::ready;
+    peer.Stop();
+    CHECK(connected);
+    CHECK(bounded);
+    CHECK(probing.get() == "timeout");
+}
+
+TEST_CASE("ONVIF media probing observes cancellation before opening", "[onvif][demux-lifecycle]") {
+    std::atomic<bool> running{false};
+    CHECK_THROWS_WITH(cosmo::service::onvif::ProbeStreamMetadata(
+                          "rtsp://127.0.0.1:1/unused",
+                          std::chrono::steady_clock::now() + std::chrono::seconds(5), &running),
+                      "timeout");
 }

@@ -13,6 +13,7 @@
 #include <stdexcept>
 
 #include "util/CipherUtil.h"
+#include "util/VideoInfo.h"
 
 namespace cosmo::service::onvif {
 namespace {
@@ -87,6 +88,23 @@ namespace {
         } catch (...) {
             return 0;
         }
+    }
+    void ReadEncoder(nlohmann::json& profile, const tinyxml2::XMLNode* encoder) {
+        profile["codec"]  = Text(encoder, "Encoding");
+        profile["width"]  = Number(encoder, "Width");
+        profile["height"] = Number(encoder, "Height");
+        profile["fps"]    = Number(encoder, "FrameRateLimit");
+    }
+    bool HasMetadata(const nlohmann::json& profile) {
+        return !profile.value("codec", "").empty() && profile.value("width", 0) > 0 &&
+               profile.value("height", 0) > 0;
+    }
+    bool UsableProfile(const nlohmann::json& profile) {
+        const auto codec     = profile.value("codec", "");
+        const int64_t pixels = int64_t(profile.value("width", 0)) * profile.value("height", 0);
+        return HasMetadata(profile) && (codec == "H264" || codec == "H265" || codec == "MJPEG") &&
+               pixels >= media::kVideoMinWidth * media::kVideoMinHeight &&
+               pixels <= media::kVideoMaxWidth * media::kVideoMaxHeight;
     }
 }  // namespace
 
@@ -251,7 +269,10 @@ nlohmann::json ParseProfiles(const std::string& xml) {
         auto* source = Find(profile, "VideoSourceConfiguration");
         if (!source)
             source = Find(profile, "VideoSource");
-        if (!encoder)
+        // Some Media1 cameras omit their HEVC encoder configuration entirely.
+        // Retain video-source profiles so their actual RTSP metadata can be queried;
+        // an audio-only profile is not a video candidate.
+        if (!encoder && !source)
             continue;
         result.push_back({{"token", token},
                           {"name", Text(profile, "Name")},
@@ -260,16 +281,19 @@ nlohmann::json ParseProfiles(const std::string& xml) {
                           {"height", Number(encoder, "Height")},
                           {"fps", Number(encoder, "FrameRateLimit")},
                           {"videoSourceToken", Text(source, "SourceToken")}});
+        result.back()["encoderToken"] =
+            encoder && encoder->Attribute("token") ? encoder->Attribute("token") : "";
         if (result.size() >= 128)
             break;
     }
     return result;
 }
 
-Client::Client(Config config, const std::atomic<bool>* running)
+Client::Client(Config config, const std::atomic<bool>* running, MetadataProbe metadataProbe)
     : config_(std::move(config)),
       running_(running),
-      deadline_(std::chrono::steady_clock::now() + std::chrono::seconds(20)) {}
+      deadline_(std::chrono::steady_clock::now() + std::chrono::seconds(20)),
+      metadata_probe_(std::move(metadataProbe)) {}
 
 std::string Client::Call(const std::string& url, const std::string& ns, const std::string& operation,
                          const std::string& body, bool anonymous) {
@@ -421,18 +445,85 @@ nlohmann::json Client::Probe() {
         profiles = ParseProfiles(Call(media_, kMedia, "GetProfiles", ""));
     if (profiles.empty())
         throw std::runtime_error("no_profiles");
+    std::string failure;
+    size_t attempted = 0;
+    // Bound both camera load and total latency (the UI timeout is 25 seconds).
+    for (auto& profile : profiles) {
+        if (!HasMetadata(profile)) {
+            try {
+                if (attempted++ >= 4)
+                    throw std::runtime_error("stream_probe_failed");
+                CompleteProfile(profile);
+            } catch (const std::exception& error) {
+                const std::string code = error.what();
+                // Never retry bad credentials across profiles and risk account lockout.
+                if (code == "unauthorized" || code == "rtsp_unauthorized")
+                    throw;
+                if (failure.empty())
+                    failure = code;
+            }
+        }
+        profile.erase("encoderToken");
+    }
+    if (!failure.empty() && std::none_of(profiles.begin(), profiles.end(), UsableProfile))
+        throw std::runtime_error(failure);
     return {{"endpoint", config_.endpoint}, {"profiles", profiles}};
+}
+void Client::CompleteProfile(nlohmann::json& profile) {
+    const auto token = profile.value("encoderToken", "");
+    if (!token.empty()) {
+        try {
+            // Only a token explicitly linked to this profile can be used; never
+            // guess the encoder from a global configuration list or profile name.
+            const bool v2 = !media2_.empty();
+            const auto doc =
+                Parse(Call(v2 ? media2_ : media_, v2 ? kMedia2 : kMedia,
+                           v2 ? "GetVideoEncoderConfigurations" : "GetVideoEncoderConfiguration",
+                           "<t:ConfigurationToken>" + Escape(token) + "</t:ConfigurationToken>"));
+            const auto* encoder = Find(doc.get(), v2 ? "Configurations" : "Configuration");
+            if (encoder && encoder->Attribute("token") && token == encoder->Attribute("token"))
+                ReadEncoder(profile, encoder);
+        } catch (const std::exception& error) {
+            if (std::string(error.what()) == "unauthorized")
+                throw;
+            // Unsupported optional configuration queries fall back to real media.
+        }
+    }
+    if (HasMetadata(profile))
+        return;
+    std::string uri;
+    try {
+        uri = PreparedStreamUri(profile.at("token"));
+    } catch (const std::exception& error) {
+        const std::string code = error.what();
+        if (code == "unauthorized" || code == "timeout")
+            throw;
+        throw std::runtime_error("stream_uri_failed");
+    }
+    const auto deadline = std::min(deadline_, std::chrono::steady_clock::now() + std::chrono::seconds(5));
+    if (std::chrono::steady_clock::now() >= deadline || (running_ && !running_->load()))
+        throw std::runtime_error("timeout");
+    const auto metadata = metadata_probe_(uri, deadline, running_);
+    // Never return credentials or a media URL from the probe API, even if an
+    // implementation supplies additional metadata fields.
+    for (const auto* key : {"codec", "width", "height", "fps"})
+        profile[key] = metadata.at(key);
+    if (!HasMetadata(profile))
+        throw std::runtime_error("stream_probe_failed");
 }
 std::string Client::StreamUri() {
     Prepare();
     if (config_.profileToken.empty())
         throw std::runtime_error("no_profile_selected");
+    return PreparedStreamUri(config_.profileToken);
+}
+std::string Client::PreparedStreamUri(const std::string& profileToken) {
     std::string uri;
     if (!media2_.empty()) {
         try {
             const auto doc = Parse(Call(media2_, kMedia2, "GetStreamUri",
                                         "<t:Protocol>RTSP</t:Protocol><t:ProfileToken>" +
-                                            Escape(config_.profileToken) + "</t:ProfileToken>"));
+                                            Escape(profileToken) + "</t:ProfileToken>"));
             uri            = Text(doc.get(), "Uri");
         } catch (const std::exception&) {
             if (media_.empty())
@@ -444,7 +535,7 @@ std::string Client::StreamUri() {
             Parse(Call(media_, kMedia, "GetStreamUri",
                        "<t:StreamSetup><tt:Stream>RTP-Unicast</tt:Stream><tt:Transport><tt:Protocol>RTSP</"
                        "tt:Protocol></tt:Transport></t:StreamSetup><t:ProfileToken>" +
-                           Escape(config_.profileToken) + "</t:ProfileToken>"));
+                           Escape(profileToken) + "</t:ProfileToken>"));
         uri = Text(doc.get(), "Uri");
     }
     return AuthenticatedUri(uri, config_);
