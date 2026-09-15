@@ -22,6 +22,7 @@
 #include "service/network/IHttpClient.h"
 #include "util/Log.h"
 #include "util/PathUtil.h"
+#include "util/ProcessShutdown.h"
 
 namespace cosmo::service {
 namespace {
@@ -431,6 +432,8 @@ struct Gb28181ManagementImpl::Impl {
         return owner;
     }
     void Invite(Stream& stream) {
+        if (util::ProcessShutdown::Requested())
+            return;
         const auto owner = Owner(stream.id);
         if (owner.empty()) {
             stream.state = "channel_not_found";
@@ -456,6 +459,12 @@ struct Gb28181ManagementImpl::Impl {
             !allocation.value("managed", false))
             throw std::runtime_error("media_unavailable");
         stream.allocated = true;
+        // Allocation performs I/O. Shutdown may have begun while it was in
+        // flight; release the resource without starting a new SIP dialog.
+        if (util::ProcessShutdown::Requested()) {
+            StopStream(stream, false);
+            return;
+        }
         mediaPort_       = port;
         stream.call      = gb::RandomHex();
         stream.from      = From();
@@ -680,7 +689,8 @@ struct Gb28181ManagementImpl::Impl {
                 StopStream(stream);
                 stream.state = "stream_failed";
             }
-            if (!stream.allocated && now >= stream.retry && !attempted && config_.value("enabled", false)) {
+            if (!stream.allocated && now >= stream.retry && !attempted && config_.value("enabled", false) &&
+                !util::ProcessShutdown::Requested()) {
                 attempted    = true;
                 stream.retry = now + 10s;
                 try {
@@ -888,7 +898,7 @@ Json Gb28181ManagementImpl::Execute(const Json& request) {
     return result.get();
 }
 void Gb28181ManagementImpl::Ensure(const std::string& channelId) {
-    if (!impl_->running_ || !gb::IsId(channelId))
+    if (!impl_->running_ || util::ProcessShutdown::Requested() || !gb::IsId(channelId))
         return;
     std::lock_guard<std::mutex> lock(impl_->mailbox_mtx_);
     if (impl_->demand_.size() < 256)

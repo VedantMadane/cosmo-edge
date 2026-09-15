@@ -11,6 +11,7 @@
 #include "service/system/IConfigReadService.h"
 #include "service/task/ITaskChannel.h"
 #include "util/Log.h"
+#include "util/ProcessShutdown.h"
 #include "util/TimeUtil.h"
 #include "util/TimingConstants.h"
 #include "util/dto/ActionCodes.h"
@@ -21,6 +22,7 @@ static constexpr const char* kTag = "ChannelDemux ";
 namespace cosmo {
 
 AlgChannelDemux::~AlgChannelDemux() {
+    Stop();
     LOG_INFO("{}:{} Delete", kTag, channel_id_);
     ClearLastFrame();
 }
@@ -102,11 +104,14 @@ bool AlgChannelDemux::SetPollChannel(const std::string& channel_id) {
 
 void AlgChannelDemux::Start() {
     std::lock_guard<std::mutex> lock(lifecycle_mtx_);
+    if (util::ProcessShutdown::Requested())
+        return;
     if (is_running_.exchange(true)) {
         LOG_INFO("{}:{} Already Running", kTag, channel_id_);
         return;
     }
     ResetDistributor();
+    demuxer_.ResetCancellation();
     if (!start()) {
         is_running_    = false;
         action_status_ = util::ErrorEnum::ActionStop;
@@ -123,6 +128,8 @@ void AlgChannelDemux::Stop() {
         LOG_INFO("{}:{} Already Stopped", kTag, channel_id_);
         return;
     }
+    // Interrupt FFmpeg before joining, without freeing its live context.
+    demuxer_.RequestStop();
     stop();
     // Reset is_need_repeat_ before CloseStream. Otherwise
     // CloseStream → demuxer_.CloseStream(is_need_repeat_=true) skips closing the
@@ -136,6 +143,8 @@ void AlgChannelDemux::Stop() {
 }
 
 bool AlgChannelDemux::OpenStream() {
+    if (!is_running_.load() || util::ProcessShutdown::Requested())
+        return false;
     if (url_.size() < 7) {
         action_status_ = util::ErrorEnum::DemuxOpenInvalidUrl;
         SetStatusInfo(service::camera::AlgDemuxStatus::AlgDemuxInvalidUrl);
@@ -167,6 +176,8 @@ bool AlgChannelDemux::OpenStream() {
         onvif_revision_ = resolved.revision;
         media_url       = std::move(resolved.mediaUrl);
     }
+    if (!is_running_.load() || util::ProcessShutdown::Requested())
+        return false;
     demuxer_.SetFile(media_url);
     read_frames_    = 0;
     is_url_changed_ = false;
@@ -185,6 +196,10 @@ bool AlgChannelDemux::OpenStream() {
     if (util::ErrorEnum::Success != demuxer_.FindStream(is_need_repeat_)) {
         action_status_ = util::ErrorEnum::DemuxGetStreamFail;
         SetStatusInfo(service::camera::AlgDemuxStatus::AlgDemuxOpenFailed);
+        return false;
+    }
+    if (!is_running_.load() || util::ProcessShutdown::Requested()) {
+        demuxer_.CloseStream();
         return false;
     }
     recorder_->SetFps(demuxer_.GetFPS());
@@ -208,9 +223,11 @@ bool AlgChannelDemux::OpenStream() {
 }
 
 void AlgChannelDemux::CloseStream() {
+    // The business flag excludes partially opened/probed FFmpeg inputs.
+    // They must also be cleaned when stopping or changing sources.
+    demuxer_.CloseStream(is_need_repeat_);
     if (is_opened_) {
-        is_opened_ = false;
-        demuxer_.CloseStream(is_need_repeat_);
+        is_opened_     = false;
         action_status_ = util::ErrorEnum::DemuxStreamClosed;
         SetStatusInfo(service::camera::AlgDemuxStatus::AlgDemuxClosed);
         ClearLastFrame();
@@ -233,6 +250,8 @@ void AlgChannelDemux::HandleStream() {
     auto frame_packet = std::make_shared<media::VideoPacket>();
     duration_stat_.BeginSample();
     auto ret = demuxer_.Demux(frame_packet);
+    if (!is_running_.load() || util::ProcessShutdown::Requested())
+        return;
     duration_stat_.EndSample();
     // These statuses consumed a packet but have no decodable frame yet. Keep
     // Opened/Reading so preview startup can wait for the next keyframe instead

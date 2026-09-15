@@ -112,6 +112,7 @@
 #include "util/Log.h"
 #include "util/NnBackendConstants.h"
 #include "util/PathUtil.h"
+#include "util/ProcessShutdown.h"
 
 namespace cosmo::app {
 
@@ -450,6 +451,7 @@ static void StopExternalComponents() {
 }
 
 void SwDeviceInit() {
+    cosmo::util::ProcessShutdown::ResetForStartup();
     RegisterInfrastructureServices();
     RegisterBusinessServices();
     cosmo::service::ServiceRegistry::Instance().CompleteRegistration();
@@ -462,6 +464,7 @@ void SwDeviceRun() {
 }
 
 void SwDeviceDestroy() {
+    cosmo::util::ProcessShutdown::Request();
     StopExternalComponents();
 
     // All externally driven work has stopped. It is now safe to invalidate

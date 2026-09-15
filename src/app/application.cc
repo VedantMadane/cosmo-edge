@@ -25,6 +25,7 @@
 #include "service/network/INetworkService.h"
 #include "util/Log.h"
 #include "util/PathUtil.h"
+#include "util/ProcessShutdown.h"
 #include "util/Version.h"
 
 namespace cosmo::app {
@@ -196,7 +197,10 @@ int Application::run(const char* base_dir) {
 
         auto& network_service =
             cosmo::service::ServiceRegistry::Instance().Get<cosmo::service::INetworkService>();
-        shutdown_signals->Start([&network_service]() { network_service.RequestHttpStop(); });
+        shutdown_signals->Start([&network_service]() {
+            cosmo::util::ProcessShutdown::Request();
+            network_service.RequestHttpStop();
+        });
 
         // Blocking — runs the HTTP server event loop until shutdown.
         SwDeviceRun();

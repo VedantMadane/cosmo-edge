@@ -9,6 +9,7 @@
 #include "media/RtspDemuxStrategy.h"
 #include "media/UsbDemuxStrategy.h"
 #include "util/Log.h"
+#include "util/ProcessShutdown.h"
 #include "util/RtspUrlUtil.h"
 #include "util/TimeUtil.h"
 
@@ -24,6 +25,23 @@ namespace media {
 
     VideoDemuxer::VideoDemuxer() : fmt_ctx_(nullptr), video_stream_idx_(0), key_frame_detected_(false) {
         opened_ = false;
+    }
+
+    void VideoDemuxer::RequestStop() {
+        stop_requested_.store(true);
+        cond_.notify_all();
+    }
+
+    void VideoDemuxer::ResetCancellation() {
+        stop_requested_.store(false);
+    }
+
+    bool VideoDemuxer::StopRequested() const {
+        return stop_requested_.load() || util::ProcessShutdown::Requested();
+    }
+
+    int VideoDemuxer::InterruptIo(void* opaque) {
+        return static_cast<VideoDemuxer*>(opaque)->StopRequested() ? 1 : 0;
     }
 
     // Stop video stream on destruction
@@ -54,7 +72,8 @@ namespace media {
 
     void VideoDemuxer::CloseStream(bool bRepeat) {
         // Looping playback requires VoD file
-        if (bRepeat && strategy_ && strategy_->SupportsRepeat()) {
+        if (bRepeat && !StopRequested() && opened_ && ready_ && filename_ == opened_filename_ && strategy_ &&
+            strategy_->SupportsRepeat()) {
             return;
         }
 
@@ -68,6 +87,14 @@ namespace media {
         }
 
         SafeCloseContext();
+        opened_filename_.clear();
+        {
+            std::lock_guard<std::mutex> lock(metadata_mtx_);
+            extradata_.clear();
+        }
+        width_.store(0, std::memory_order_relaxed);
+        height_.store(0, std::memory_order_relaxed);
+        fps_.store(0, std::memory_order_relaxed);
         LOG_INFO("{}Stream {} Closed.", kTag, util::RedactRtspUrl(filename_));
         return;
     }
@@ -111,11 +138,13 @@ namespace media {
     // Open stream: Verify online status if this function is available
     // pullTimeoutSec default 5 seconds, delayMs default 200ms
     util::ErrorEnum VideoDemuxer::OpenStream(bool bRepeat, int pullTimeoutSec, int delayMs) {
+        if (StopRequested()) {
+            CloseStream();
+            return util::ErrorEnum::DemuxOpenStreamFail;
+        }
         // Looping playback requires VoD file
-        if (bRepeat && strategy_ && strategy_->SupportsRepeat()) {
-            if (!opened_)
-                return util::ErrorEnum::DemuxOpenStreamFail;
-
+        if (bRepeat && opened_ && ready_ && fmt_ctx_ && filename_ == opened_filename_ && strategy_ &&
+            strategy_->SupportsRepeat()) {
             ResetStreamState();
             opened_ = true;
             ready_  = true;
@@ -129,8 +158,7 @@ namespace media {
                 if (seekRet < 0) {
                     LOG_WARN("{}avformat_seek_file also failed for {}: [{}]", kTag,
                              util::RedactRtspUrl(filename_), GetAvErr(seekRet));
-                    opened_ = false;
-                    ready_  = false;
+                    CloseStream();
                     return util::ErrorEnum::DemuxOpenStreamFail;
                 }
             }
@@ -145,18 +173,31 @@ namespace media {
             return util::ErrorEnum::Success;
         }
 
+        // A probed context has released its FFmpeg stream-probe state and
+        // cannot be reused as a fresh input, even if the URL is unchanged.
+        CloseStream();
         ResetStreamState();
 
         // Release old strategy and its resources before creating a new one
         strategy_.reset();
         strategy_ = CreateStrategy(filename_, pullTimeoutSec, delayMs);
-        auto ret  = strategy_->OpenInput(fmt_ctx_, filename_);
-        if (ret == util::ErrorEnum::Success && fmt_ctx_) {
-            opened_ = true;
+        is_live_.store(strategy_->IsLive(), std::memory_order_relaxed);
+        // Install cancellation before avformat_open_input, not just before
+        // reading packets: connect/handshake and probing can also block.
+        fmt_ctx_ = avformat_alloc_context();
+        if (!fmt_ctx_)
+            return util::ErrorEnum::DemuxOpenStreamFail;
+        fmt_ctx_->interrupt_callback = {&VideoDemuxer::InterruptIo, this};
+        auto ret                     = strategy_->OpenInput(fmt_ctx_, filename_);
+        if (ret == util::ErrorEnum::Success && fmt_ctx_ && !StopRequested()) {
+            opened_          = true;
+            opened_filename_ = filename_;
         } else {
             // Ensure fmt_ctx_ is freed on failure — some OpenInput implementations
             // may partially allocate the context before failing.
-            SafeCloseContext();
+            CloseStream();
+            if (ret == util::ErrorEnum::Success)
+                ret = util::ErrorEnum::DemuxOpenStreamFail;
         }
         return ret;
     }

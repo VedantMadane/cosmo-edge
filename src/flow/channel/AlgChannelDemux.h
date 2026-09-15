@@ -67,7 +67,7 @@ public:
         return action_status_;
     }
 
-    [[nodiscard]] const std::vector<uint8_t>& GetCodecExtradata() const {
+    [[nodiscard]] std::vector<uint8_t> GetCodecExtradata() const {
         return demuxer_.GetCodecExtradata();
     }
 

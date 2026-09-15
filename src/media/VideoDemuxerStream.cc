@@ -1,6 +1,7 @@
 // VideoDemuxerStream.cc — Stream handling for VideoDemuxer.
 // Split from VideoDemuxer.cc to reduce file size (DEBT-007).
 
+#include <algorithm>
 #include <thread>
 
 #include "media/VideoDemuxer.h"
@@ -34,19 +35,22 @@ namespace media {
     }
 
     // find stream...
-    util::ErrorEnum VideoDemuxer::FindStream(bool bRepeat) {
-        // Looping playback requires VoD file
-        if (bRepeat && strategy_ && strategy_->SupportsRepeat()) {
-            return util::ErrorEnum::Success;
+    util::ErrorEnum VideoDemuxer::FindStream(bool /*bRepeat*/) {
+        if (StopRequested()) {
+            CloseStream();
+            return util::ErrorEnum::FileNotOpened;
         }
-
-        if (!opened_) {
+        if (!opened_ || !fmt_ctx_) {
             LOG_WARN("{}FindStream {} Stream Not Opened", kTag, util::RedactRtspUrl(filename_));
             return util::ErrorEnum::FileNotOpened;
         }
+        // A seek retains valid metadata. A fresh open must be probed even
+        // when its caller still carries a pending-repeat flag.
+        if (ready_)
+            return util::ErrorEnum::Success;
         int ret = 0;
-        if ((ret = avformat_find_stream_info(fmt_ctx_, nullptr)) != 0) {
-            SafeCloseContext();
+        if ((ret = avformat_find_stream_info(fmt_ctx_, nullptr)) < 0 || StopRequested()) {
+            CloseStream();
             LOG_WARN("{}FindStream {} failed.[{}]", kTag, util::RedactRtspUrl(filename_), GetAvErr(ret));
             return util::ErrorEnum::DemuxFindStreamFail;
         }
@@ -55,21 +59,22 @@ namespace media {
         video_stream_idx_ = av_find_best_stream(fmt_ctx_, AVMEDIA_TYPE_VIDEO, -1, -1, &codec, 0);
         if (video_stream_idx_ < 0 || !codec) {
             const int stream_error = video_stream_idx_ < 0 ? video_stream_idx_ : AVERROR_DECODER_NOT_FOUND;
-            SafeCloseContext();
+            CloseStream();
             LOG_WARN("{}FindStream {} stream or codec error.[{}]", kTag, util::RedactRtspUrl(filename_),
                      GetAvErr(stream_error));
             return util::ErrorEnum::DemuxFindVideoStreamFail;
         }
 
         std::string codec_name = codec->name;
+        VideoCodecType next_codec;
         if (codec_name == "h264" || codec_name == "h264_bm") {
-            enc_type_ = VideoCodecType::kH264;
+            next_codec = VideoCodecType::kH264;
         } else if (codec_name == "hevc" || codec_name == "hevc_bm") {
-            enc_type_ = VideoCodecType::kH265;
+            next_codec = VideoCodecType::kH265;
         } else if (codec_name == "mjpeg" || codec_name == "mjpg") {
-            enc_type_ = VideoCodecType::kMjpeg;  // USB camera V4L2 MJPEG (consistent with old eb6daaa6)
+            next_codec = VideoCodecType::kMjpeg;  // USB camera V4L2 MJPEG
         } else {
-            SafeCloseContext();
+            CloseStream();
             LOG_WARN("{}FindStream {} codec is not support. [{}]", kTag, util::RedactRtspUrl(filename_),
                      codec_name);
             return util::ErrorEnum::VideoFormatNotSupport;
@@ -80,10 +85,16 @@ namespace media {
 
         // Cache extradata so new RTMP viewers can get SPS/PPS
         // without waiting for in-band parameters in the stream.
-        if (codecpar->extradata && codecpar->extradata_size > 0) {
-            extradata_.assign(codecpar->extradata, codecpar->extradata + codecpar->extradata_size);
-        } else {
-            extradata_.clear();
+        {
+            // Preview startup can read headers while this worker reconnects.
+            // Publish/copy snapshots rather than returning a mutable reference.
+            std::lock_guard<std::mutex> lock(metadata_mtx_);
+            enc_type_ = next_codec;
+            if (codecpar->extradata && codecpar->extradata_size > 0) {
+                extradata_.assign(codecpar->extradata, codecpar->extradata + codecpar->extradata_size);
+            } else {
+                extradata_.clear();
+            }
         }
 
         AVRational avgFpsRat    = stream->avg_frame_rate;
@@ -110,6 +121,7 @@ namespace media {
 
             if (!InitBsfContext()) {
                 LOG_WARN("{}FindStream {} init bsfc Failed", kTag, util::RedactRtspUrl(filename_));
+                CloseStream();
                 return util::ErrorEnum::DemuxInitBsfcFail;
             }
             // mp4 forced frame rate
@@ -141,7 +153,18 @@ namespace media {
             auto now      = std::chrono::steady_clock::now();
             auto diffTime = now - open_time_point_;
             if (diffTime < expectTime) {
-                cond_.wait_for(lockControl, expectTime - diffTime);
+                // Bound the process-wide cancellation observation latency;
+                // per-channel RequestStop additionally wakes this wait.
+                while (!StopRequested() && std::chrono::steady_clock::now() - open_time_point_ < expectTime) {
+                    const auto remaining = expectTime - (std::chrono::steady_clock::now() - open_time_point_);
+                    if (remaining <= std::chrono::steady_clock::duration::zero())
+                        break;
+                    cond_.wait_for(
+                        lockControl,
+                        std::min(remaining, std::chrono::duration_cast<std::chrono::steady_clock::duration>(
+                                                std::chrono::milliseconds(50))),
+                        [this]() { return StopRequested(); });
+                }
             }
         }
     }
@@ -149,6 +172,8 @@ namespace media {
     int VideoDemuxer::AvReadFrame(AVPacket* packet) {
         int ret = 0;
         do {
+            if (StopRequested())
+                return AVERROR_EXIT;
             memset(packet, 0, sizeof(AVPacket));  // Reset structure (prevent dangling pointers)
             av_init_packet(packet);
             ret = av_read_frame(fmt_ctx_, packet);
@@ -266,15 +291,17 @@ namespace media {
     }
 
     ReadFrameStatus VideoDemuxer::Demux(VideoPacketPtr pkt) {
-        if (!ready_) {
+        if (StopRequested() || !ready_ || !fmt_ctx_) {
             return ReadFrameStatus::StreamNotOpen;
         }
         if (end_) {
             return ReadFrameStatus::StreamEnd;
         }
         LocalFileFpsCtrl();
+        if (StopRequested())
+            return ReadFrameStatus::StreamNotOpen;
 
-        AVPacket packet;
+        AVPacket packet{};
         int ret = AvReadFrame(&packet);
         //    m_packetIndex++;
         if (0 != ret) {

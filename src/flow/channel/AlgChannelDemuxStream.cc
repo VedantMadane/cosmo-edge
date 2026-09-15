@@ -8,6 +8,7 @@
 #include "service/system/IConfigReadService.h"
 #include "service/task/ITaskChannel.h"
 #include "util/Log.h"
+#include "util/ProcessShutdown.h"
 #include "util/TimeUtil.h"
 #include "util/TimingConstants.h"
 #include "util/dto/ActionCodes.h"
@@ -67,6 +68,8 @@ void AlgChannelDemux::SetStatusInfo(service::camera::AlgDemuxStatus status) {
 }
 
 void AlgChannelDemux::RequestUrl() {
+    if (!is_running_.load() || util::ProcessShutdown::Requested())
+        return;
     if (url_.rfind("onvif://", 0) == 0)
         return;
     if (!service::ServiceRegistry::Instance().Get<service::IConfigReadService>().IsNetworkModel()) {
@@ -178,7 +181,7 @@ bool AlgChannelDemux::IsDataActive() const {
 
 void AlgChannelDemux::run() {
     bool streamOpened = false;
-    while (is_running_) {
+    while (is_running_.load() && !util::ProcessShutdown::Requested()) {
         if (streamOpened && url_.rfind("onvif://", 0) == 0 &&
             service::ServiceRegistry::Instance().Get<service::IOnvifService>().Revision(url_) !=
                 onvif_revision_)
@@ -205,7 +208,10 @@ void AlgChannelDemux::run() {
         if (!streamOpened) {
             streamOpened = OpenStream();
             if (!streamOpened) {
-                std::this_thread::sleep_for(timing::kOneSecondInterval);
+                // Keep the retry rate but observe shutdown promptly.
+                for (int wait = 0; wait < 20 && is_running_.load() && !util::ProcessShutdown::Requested();
+                     ++wait)
+                    std::this_thread::sleep_for(std::chrono::milliseconds(50));
                 if (0 == open_failed_count_ % 600) {
                     LOG_INFO("{}:{} OpenStream:{} Failed, Status:{} FailedCount:{}", kTag, channel_id_, url_,
                              StatusString(status_.status), open_failed_count_);
@@ -218,6 +224,7 @@ void AlgChannelDemux::run() {
 
         if (is_url_changed_) {
             LOG_INFO("{}:{} CloseStream URL Change", kTag, channel_id_);
+            is_need_repeat_ = false;
             CloseStream();
             streamOpened = false;
             continue;
@@ -225,6 +232,7 @@ void AlgChannelDemux::run() {
 
         if (is_need_repeat_) {
             LOG_INFO("{}:{} Need Repeat", kTag, channel_id_);
+            CloseStream();
             streamOpened = false;
             continue;
         }
@@ -232,6 +240,11 @@ void AlgChannelDemux::run() {
         HandleStream();
     }
 
+    // The process gate can stop this worker before its owner reaches Stop().
+    // Keep is_running_ set until Stop() has joined the thread.
+    is_need_repeat_ = false;
+    CloseStream();
+    ClearLastFrame();
     LOG_INFO("THREAD [{}] Stop ", Name());
 }
 
