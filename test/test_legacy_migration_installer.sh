@@ -277,16 +277,6 @@ test ! -e "$rollback_root/appfs/cosmo_wander/.cosmo-migration-backup"
 test -z "$(find "$rollback_root/appfs/cosmo_wander" -maxdepth 1 \
     -name '.cosmo-migration-staging.*' -print -quit)"
 
-# Preserved resources must be copied into staging before the package overlays
-# them. Keeping the packaged resource tree in staging while copying the active
-# tree creates an avoidable second model-sized allocation on /appfs.
-installer="$repo/scripts/legacy_migration_install.sh"
-preserved_copy_line="$(grep -nF 'cp -a -- "${active_root}/resource/." "${staging_root}/resource/"' "$installer" | cut -d: -f1)"
-payload_copy_line="$(grep -nF 'cp -a -- "${payload_root}/." "$staging_root/"' "$installer" | cut -d: -f1)"
-test -n "$preserved_copy_line"
-test -n "$payload_copy_line"
-test "$preserved_copy_line" -lt "$payload_copy_line"
-if grep -Fq '.packaged-resource' "$installer"; then
-    exit 1
-fi
+# Check actual model inode reuse, package updates and rollback isolation.
+python3 "$repo/test/test_upgrade_model_storage.py"
 echo "legacy migration installer tests passed"
