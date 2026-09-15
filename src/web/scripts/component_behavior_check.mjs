@@ -44,7 +44,7 @@ try {
   assert.equal(requests, 1)
 } finally { device.unmount() }
 
-for (const platform of ['1', '15']) {
+for (const platform of ['1', '-1', null, '15']) {
   for (const match of [true, false]) {
     const form = await mountComponent('views/gam/taskManager/editTask/dynamicForm.vue', {
       props: { params: [
@@ -56,21 +56,21 @@ for (const platform of ['1', '15']) {
     })
     try {
       const childForms = form.all((n) => n.type === 'el-form' && n.props.model?.key === 'child')
-      assert.equal(childForms.length, platform === '15' || match ? 1 : 0)
-      if (childForms.length) assert.equal(childForms[0].props.disabled, platform === '15' && !match)
+      assert.equal(childForms.length, 1)
+      assert.equal(childForms[0].props.disabled, !match)
       const data = form.instance.getAllFormData()
       assert.equal(data.find((p) => p.key === 'child')?.value, 'kept-value')
     } finally { form.unmount() }
   }
 }
 
-for (const scenario of [
+for (const platform of ['1', '-1', null, '15']) for (const scenario of [
   { search: '?channelId=outer', hash: '#/edit?channelId=hash-channel', expected: 'hash-channel' },
   { search: '?channelCode=legacy', hash: '#/edit', expected: 'resolved-channel', legacy: true },
   { search: '', hash: '#/edit', expected: 'prop-channel' }
 ]) {
   const calls = []
-  const storage = { getItem: () => '15' }
+  const storage = { getItem: key => key === 'platformType' ? platform : null }
   const service = await mountComponent('views/gam/taskManager/editTask/serviceConfig.vue', {
     props: { channelId: 'prop-channel' },
     mocks: {
@@ -94,3 +94,5 @@ for (const scenario of [
 }
 
 console.log('Component behavior checks passed')
+
+await import('./edge_behavior_check.mjs')
