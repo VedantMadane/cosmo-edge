@@ -1,4 +1,5 @@
 cmake_minimum_required(VERSION 3.16)
+# Retained for reproducing the prebuilt dependency; not invoked by project builds.
 if(NOT DEFINED FFMPEG_SOURCE_DIR)
     message(FATAL_ERROR "FFMPEG_SOURCE_DIR is required (a private FFmpeg 4.4.6 build copy)")
 endif()

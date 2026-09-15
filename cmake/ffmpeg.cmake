@@ -1,17 +1,17 @@
-# FFmpeg prebuilt binary integration with a pinned FLV demuxer backport
+# FFmpeg prebuilt binary integration
 #
-# Use prebuilt shared libraries under prebuild/ffmpeg/<arch>/, except libavformat:
-# rebuild that library from the matching release to recognize legacy FLV HEVC.
+# All libraries are prebuilt, including the legacy FLV HEVC libavformat backport.
+# Normal project builds never download or compile FFmpeg sources.
 #
 # Prerequisites:
-#   - prebuild/ffmpeg/aarch64/{include/,lib/} for the Sophon/aarch64 target
+#   - prebuild/ffmpeg/aarch64/{include/,lib/} for aarch64 targets
 #   - prebuild/ffmpeg/x86_64/{include/,lib/}  for the CPU/x86_64 target
 #   - All .so soname symlinks must be present (e.g. libavcodec.so -> libavcodec.so.58)
 #   - If COSMO_ENABLE_OPENH264 is ON, libopenh264.so must also be present in the
 #     same lib/ directory (FFmpeg must have been built with --enable-libopenh264).
 #
-# Keep known non-GPL prebuilt codecs. The libavformat build also omits GPL and
-# nonfree configure flags; it does not install its locally built codec libraries.
+# Keep the existing codec libraries and their ABI. The libavformat artifacts
+# and their build provenance are recorded in prebuild/ffmpeg/manifest.json.
 
 if(COSMO_TARGET_ARCH STREQUAL "aarch64")
     set(FFMPEG_PREBUILD_DIR ${CMAKE_CURRENT_SOURCE_DIR}/prebuild/ffmpeg/aarch64)
@@ -30,11 +30,15 @@ set(FFMPEG_AVUTIL_LIB      ${FFMPEG_PREBUILD_DIR}/lib/libavutil.so)
 set(FFMPEG_SWRESAMPLE_LIB  ${FFMPEG_PREBUILD_DIR}/lib/libswresample.so)
 set(FFMPEG_SWSCALE_LIB     ${FFMPEG_PREBUILD_DIR}/lib/libswscale.so)
 
-# The pinned prebuilt FLV demuxer predates legacy HEVC CodecID 12 support.
-# Build a patched libavformat in the build tree; all other prebuilt libs stay intact.
-include(${CMAKE_CURRENT_SOURCE_DIR}/cmake/ffmpeg_flv_compat.cmake)
+# FFmpeg is shared by CPU architecture; chip-specific media backends are separate.
+foreach(component AVCODEC AVDEVICE AVFILTER AVFORMAT AVUTIL SWRESAMPLE SWSCALE)
+    if(NOT EXISTS "${FFMPEG_${component}_LIB}")
+        message(FATAL_ERROR "Missing prebuilt FFmpeg library: ${FFMPEG_${component}_LIB}")
+    endif()
+endforeach()
 
 message(STATUS "FFmpeg: using prebuilt libraries from ${FFMPEG_PREBUILD_DIR}")
+message(STATUS "FFmpeg libavformat: ${FFMPEG_AVFORMAT_LIB}")
 
 # ── OpenH264 (optional, required when COSMO_ENABLE_OPENH264=ON) ──────────────
 if(COSMO_ENABLE_OPENH264)
@@ -110,5 +114,8 @@ install(DIRECTORY ${FFMPEG_PREBUILD_DIR}/lib/
     DESTINATION lib
     FILES_MATCHING
         PATTERN "*.so*"
-        PATTERN "libavformat.so*" EXCLUDE
 )
+install(FILES "${CMAKE_CURRENT_SOURCE_DIR}/cmake/patch_ffmpeg_flv_hevc.cmake"
+    DESTINATION licenses/ffmpeg)
+install(FILES "${CMAKE_CURRENT_SOURCE_DIR}/prebuild/ffmpeg/manifest.json"
+    DESTINATION licenses/ffmpeg)
