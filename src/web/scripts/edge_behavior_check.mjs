@@ -86,7 +86,7 @@ for (const platform of platforms) for (const [type, method, listKey] of [
   const storage = makeStorage(platform)
   let requests = 0
   const form = await mountComponent('views/gam/taskManager/editTask/dynamicForm.vue', {
-    props: { params: [{ key: 'resource', name: 'Resource', type, value: 'resource-1', senior: 0, channelEditable: true, isColumn: true }] },
+    props: { modelValue: [{ key: 'resource', name: 'Resource', type, value: 'resource-1', senior: 0, channelEditable: true, isColumn: true }] },
     mocks: { './distanceDialog.vue': empty, '@/assets/CatchPhoto.png': { default: '' }, echarts: { number: Number } },
     globals: { ...globalsFor(storage), setTimeout: () => 1, clearTimeout() {} },
     api: { [method]: async data => {
@@ -105,7 +105,7 @@ for (const platform of platforms) for (const [type, method, listKey] of [
       const option = form.all(n => n.type === 'el-option' && n.props.value === 'resource-1')[0]
       assert.equal(option?.props.label, 'Resource one')
     }
-    assert.equal(form.instance.getAllFormData()[0].value, 'resource-1')
+    assert.equal(form.instance.collect()[0].value, 'resource-1')
     assertNoPlatformAccess(storage)
   } finally { form.unmount() }
 }
@@ -159,6 +159,8 @@ for (const platform of platforms) {
   const timers = []
   const calls = { save: [], switch: [], delete: [] }
   const warnings = []
+  let validation = async () => ({ valid: true, params: configRef.taskParam })
+  const paramStub = { methods: { validateAndCollect: () => validation() }, render: () => null }
   const areaStub = {
     props: ['config'],
     render() {
@@ -169,7 +171,7 @@ for (const platform of platforms) {
   const service = await mountComponent('views/gam/taskManager/editTask/serviceConfig.vue', {
     props: { channelId: 'channel-1', joinType: 0 },
     mocks: {
-      './areaSetting2.vue': { default: areaStub }, './paramSetting.vue': empty,
+      './areaSetting2.vue': { default: areaStub }, './paramSetting.vue': { default: paramStub },
       './BatchApplication.vue': empty, '@/components/eventBus.js': { default: { $emit() {} } }, uuid: { v4: () => 'fixture-id' }
     },
     globals: { ...globalsFor(storage), setTimeout: callback => { timers.push(callback); return timers.length }, clearTimeout() {} },
@@ -196,8 +198,14 @@ for (const platform of platforms) {
     assert.equal(configRef.pollingId, 'legacy-polling')
     assert.equal(configRef.scheduleId, 'schedule-1')
     assert.deepEqual(plain(configRef.taskParam.map(param => [param.key, param.value, param.senior])), [['editable', 'channel-value', 0]])
+    let finishValidation
+    validation = () => new Promise(resolve => { finishValidation = resolve })
     button(service, 'action.save').props.onClick()
     await settle(service)
+    assert.equal(calls.save.length, 0, 'save waits for child validation')
+    finishValidation({ valid: true, params: configRef.taskParam })
+    await settle(service)
+    validation = async () => ({ valid: true, params: configRef.taskParam })
     assert.equal(calls.save.length, 1)
     assert.equal(calls.save[0].category, 1)
     assert.equal(calls.save[0].pollingId, 'legacy-polling')
@@ -214,6 +222,26 @@ for (const platform of platforms) {
     button(service, 'action.ok', confirm).props.onClick()
     await settle(service)
     assert.deepEqual(calls.delete, [{ channelId: 'channel-1', algorithmId: 'algorithm-1' }])
+    timers.forEach(callback => callback())
+    validation = async () => ({ valid: false, params: [] })
+    button(service, 'action.save').props.onClick()
+    await settle(service)
+    assert.equal(calls.save.length, 1, 'failed asynchronous validation prevents saving')
+    validation = async () => { throw new Error('validation unavailable') }
+    timers.forEach(callback => callback())
+    button(service, 'action.save').props.onClick()
+    await settle(service)
+    assert.equal(calls.save.length, 1, 'rejected validation prevents saving')
+    validation = () => new Promise(resolve => { finishValidation = resolve })
+    timers.forEach(callback => callback())
+    button(service, 'action.save').props.onClick()
+    await settle(service)
+    configRef.channelId = 'replacement-channel'
+    finishValidation({ valid: true, params: configRef.taskParam })
+    await settle(service)
+    assert.equal(calls.save.length, 1, 'late validation cannot save to a replacement channel')
+    configRef.channelId = 'channel-1'
+    validation = async () => ({ valid: true, params: configRef.taskParam })
     // The existing legacy polling validation remains part of save semantics.
     timers.forEach(callback => callback())
     configRef.pollingId = ''
