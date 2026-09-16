@@ -26,6 +26,7 @@ REQUIRED_EXECUTABLES = {
     "scripts/run_start.sh",
     "scripts/start.sh",
     "scripts/stop.sh",
+    "scripts/system-log-cleanup.sh",
 }
 RUNTIME_PATHS_FILE = "share/cosmo/runtime-paths.env"
 REQUIRED_LICENSE_FILES = {
@@ -75,6 +76,7 @@ APPROVED_MODEL_GUARD_RUNTIME_SHA256 = (
 REQUIRED_FILES = {
     "bin/version.txt",
     "scripts/common.sh",
+    "scripts/cosmo-log-cleanup.service",
     RUNTIME_PATHS_FILE,
 } | REQUIRED_LICENSE_FILES
 RUNTIME_DATA_DIRS = {
