@@ -178,7 +178,6 @@ const config = ref({
   shieldAreaRows: [],
   shieldAreaHeader: [],
   areasTitle: [],
-  isValited: true,
   warning: '',
   data: [],
   Multiple: '',
@@ -777,11 +776,21 @@ const clickSaveServe = () => {
   }, 3000)
 }
 
-const newSave = (skipRefresh = false) => {
-  EventBus.$emit('validTaskParam')
-  if (!config.value.isValited) {
-    return
+const newSave = async (skipRefresh = false) => {
+  const editingConfig = config.value
+  const editingAlgorithmId = algorithmId.value
+  const editingChannelId = config.value.channelId
+  let result
+  try {
+    result = await parm.value?.validateAndCollect()
+  } catch {
+    return false
   }
+  if (!result?.valid || config.value !== editingConfig ||
+      algorithmId.value !== editingAlgorithmId || config.value.channelId !== editingChannelId) {
+    return false
+  }
+  config.value.taskParam = result.params
 
   let params = {
     channelId: config.value.channelId,
@@ -960,6 +969,7 @@ const newSave = (skipRefresh = false) => {
     if (!skipRefresh) {
       getServeTypes()
     }
+    return true
   })
 }
 
@@ -994,10 +1004,8 @@ const batch = () => {
 }
 
 const BatchConfirm = async (data) => {
-  const saveResult = newSave(true)
-  if (!saveResult) return // 校验未通过
   try {
-    await saveResult
+    if (await newSave(true) !== true) return
   } catch (e) {
     return
   }
@@ -1030,9 +1038,6 @@ const resetParameter = () => {
     }
   )
 
-  if (parm.value.$refs.submitForm) {
-    parm.value.$refs.submitForm.transferList = []
-  }
   parameterVisible.value = false
 }
 

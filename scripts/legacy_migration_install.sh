@@ -268,10 +268,12 @@ rollback_installation() {
 }
 
 [ -f "${payload_root}/bin/cosmo-engine" ] || fail "package is missing bin/cosmo-engine"
-for required_script in stop.sh start.sh inte_run_start.sh; do
+for required_script in stop.sh start.sh inte_run_start.sh system-log-cleanup.sh; do
     [ -x "${payload_root}/scripts/${required_script}" ] ||
         fail "package script is missing or not executable: ${required_script}"
 done
+[ -f "${payload_root}/scripts/cosmo-log-cleanup.service" ] ||
+    fail "package is missing cosmo-log-cleanup.service"
 
 log "Install Start"
 log "script=${script_path}, logFile=${log_file}"
@@ -357,13 +359,22 @@ chmod 0644 "$service_temp"
 mv -f -- "$service_temp" "$service_file"
 service_temp=''
 
+# Install on both fresh installation and upgrade, but never clean logs here.
+# Only systemd's next boot transaction starts this independent oneshot service.
+service_temp="${systemd_root}/cosmo-log-cleanup.service.tmp.$$"
+cp -- "${active_root}/scripts/cosmo-log-cleanup.service" "$service_temp"
+chmod 0644 "$service_temp"
+mv -f -- "$service_temp" "${systemd_root}/cosmo-log-cleanup.service"
+service_temp=''
+
 if [ -n "${COSMO_MIGRATION_TEST_ROOT:-}" ]; then
     wants_dir="${systemd_root}/multi-user.target.wants"
     mkdir -p -- "$wants_dir"
     ln -sfn ../cosmo.service "${wants_dir}/cosmo.service"
+    ln -sfn ../cosmo-log-cleanup.service "${wants_dir}/cosmo-log-cleanup.service"
 else
     systemctl daemon-reload
-    systemctl enable cosmo.service
+    systemctl enable cosmo.service cosmo-log-cleanup.service
 fi
 
 commit_data_root_migration

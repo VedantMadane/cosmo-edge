@@ -444,8 +444,9 @@ const handleDelete = (index, type) => {
 }
 
 const sureAddClick = async () => {
-  const canSubmit = submitFormRef.value.submitForm()
-  if (!canSubmit) return
+  const result = await submitFormRef.value?.validateAndCollect()
+  if (!result?.valid) return
+  addAreaDialogConfig.value = result.params
 
   if (areaDialogMode.value === 'add-line') {
     console.log('当前addAreaDialogConfig:', JSON.parse(JSON.stringify(addAreaDialogConfig.value)))
