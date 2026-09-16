@@ -28,7 +28,7 @@
     "api-contract:check": "node --experimental-vm-modules scripts/api_contract_check.mjs",
     "request-behavior:check": "node --experimental-vm-modules scripts/request_behavior_check.mjs",
     "task-card-layout:build": "node scripts/task_card_layout_fixture.mjs",
-    "component-behavior:check": "node --experimental-vm-modules scripts/component_behavior_check.mjs && node --experimental-vm-modules scripts/model_config_behavior_check.mjs",
+    "component-behavior:check": "node --experimental-vm-modules scripts/component_behavior_check.mjs && node --experimental-vm-modules scripts/model_config_behavior_check.mjs && node --experimental-vm-modules scripts/flow_node_state_check.mjs",
     "component-behavior:variants": "node scripts/component_behavior_variants.mjs",
     "task-card-layout:variants": "node scripts/task_card_layout_variants.mjs"
   },
