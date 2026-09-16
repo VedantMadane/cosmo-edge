@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import copy
 import hashlib
 import importlib.util
 import io
@@ -15,6 +16,9 @@ import unittest
 
 
 REPOSITORY = pathlib.Path(__file__).resolve().parents[1]
+SOPHON_SDK = REPOSITORY / "prebuild/model-guard-v2"
+SOPHON_MANIFEST_FILE = "share/cosmo-model-guard/SDK-MANIFEST.json"
+SOPHON_HEADER_FILE = "share/cosmo-model-guard/cosmo_model_guard_v2.h"
 spec = importlib.util.spec_from_file_location(
     "package_verifier", REPOSITORY / "scripts/verify_package_contents.py"
 )
@@ -74,6 +78,9 @@ class PackageProfileTests(unittest.TestCase):
             if profile == "production-release":
                 files.add("bin/cosmo-model-provision")
             rknn_guard = include_model_guard and target_chip == "rk3576"
+            sophon_production = profile == "production-release" and not rknn_guard
+            if sophon_production:
+                files.update({SOPHON_MANIFEST_FILE, SOPHON_HEADER_FILE})
             guard_payload = b"RKNN Guard ABI1 fixture (not an admitted SDK)"
             header_payload = b"/* RKNN ABI1 fixture */"
             provision_payload = b"#!/bin/sh\n"
@@ -122,7 +129,7 @@ class PackageProfileTests(unittest.TestCase):
                 elif name == verifier.MODEL_GUARD_RUNTIME_HASH_FILE:
                     data = (hashlib.sha256(guard_payload).hexdigest() + "  " +
                             verifier.MODEL_GUARD_RKNN_RUNTIME_FILE + "\n").encode()
-                elif name == verifier.MODEL_GUARD_RKNN_SDK_MANIFEST_FILE:
+                elif rknn_guard and name == verifier.MODEL_GUARD_RKNN_SDK_MANIFEST_FILE:
                     data = json.dumps({
                         "release_id": "cmg-sdk-v2.4.0-rknn-abi1",
                         "certificate_storage": "caller-selected",
@@ -133,6 +140,12 @@ class PackageProfileTests(unittest.TestCase):
                             "bin/cosmo-model-provision": hashlib.sha256(provision_payload).hexdigest(),
                         },
                     }).encode()
+                elif sophon_production and name == SOPHON_MANIFEST_FILE:
+                    data = json.dumps(verifier.SOPHON_RELEASE_MANIFEST).encode()
+                elif sophon_production and name == SOPHON_HEADER_FILE:
+                    data = (SOPHON_SDK / "include/cosmo_model_guard_v2.h").read_bytes()
+                elif sophon_production and name == "bin/cosmo-model-provision":
+                    data = (SOPHON_SDK / name).read_bytes()
                 elif name == verifier.MODEL_GUARD_TERMS_FILE:
                     data = (
                         REPOSITORY / "prebuild/model-guard-v2/README.md"
@@ -628,6 +641,60 @@ class PackageProfileTests(unittest.TestCase):
             negative = self.mutate_package(package, {}, additions={"resource/" + filename: b"opaque"})
             with self.assertRaisesRegex(verifier.PackageAuditError, "controlled secret"):
                 verifier.verify_package(negative, "production-release", "bm1688")
+
+    def test_sophon_production_manifest_formatting_and_identity(self):
+        package = self.protected_fixture("bm1688")
+        manifest = copy.deepcopy(verifier.SOPHON_RELEASE_MANIFEST)
+        equivalent = json.dumps(manifest, indent=4, sort_keys=True).encode()
+        verifier.verify_package(
+            self.mutate_package(package, {SOPHON_MANIFEST_FILE: equivalent}),
+            "production-release", "bm1688",
+        )
+        for field, value in (("release_id", "old-release"), ("unexpected", True)):
+            with self.subTest(field=field):
+                changed = dict(manifest, **{field: value})
+                negative = self.mutate_package(
+                    package, {SOPHON_MANIFEST_FILE: json.dumps(changed).encode()}
+                )
+                with self.assertRaisesRegex(verifier.PackageAuditError, "manifest does not match"):
+                    verifier.verify_package(negative, "production-release", "bm1688")
+
+    def test_sophon_production_requires_manifest_and_header(self):
+        package = self.protected_fixture("bm1688")
+        for member in (SOPHON_MANIFEST_FILE, SOPHON_HEADER_FILE):
+            for change in (None, "directory", "symlink", b"invalid"):
+                with self.subTest(member=member, change=change):
+                    negative = self.mutate_package(package, {member: change})
+                    with self.assertRaisesRegex(
+                        verifier.PackageAuditError, "manifest|SDK component|header"
+                    ):
+                        verifier.verify_package(negative, "production-release", "bm1688")
+
+    def test_sophon_production_rejects_mismatched_components(self):
+        package = self.protected_fixture("bm1688")
+        for member in (
+            verifier.MODEL_GUARD_RUNTIME_FILE,
+            "bin/cosmo-model-provision",
+            SOPHON_HEADER_FILE,
+        ):
+            with self.subTest(member=member):
+                negative = self.mutate_package(package, {member: b"old-sdk-component"})
+                with self.assertRaisesRegex(
+                    verifier.PackageAuditError, "approved artifact|hash|SHA|SDK component"
+                ):
+                    verifier.verify_package(negative, "production-release", "bm1688")
+
+    def test_sophon_rejects_self_consistent_unapproved_sdk(self):
+        package = self.protected_fixture("bm1688")
+        manifest = copy.deepcopy(verifier.SOPHON_RELEASE_MANIFEST)
+        payload = b"unapproved-provisioner"
+        manifest["components"]["bin/cosmo-model-provision"] = hashlib.sha256(payload).hexdigest()
+        negative = self.mutate_package(package, {
+            "bin/cosmo-model-provision": payload,
+            SOPHON_MANIFEST_FILE: json.dumps(manifest).encode(),
+        })
+        with self.assertRaisesRegex(verifier.PackageAuditError, "manifest does not match"):
+            verifier.verify_package(negative, "production-release", "bm1688")
 
     def test_rknn_manifest_formatting_and_identity(self):
         package = self.protected_fixture("rk3576")

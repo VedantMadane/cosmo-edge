@@ -16,7 +16,6 @@ import '@/styles/global.scss'
 import Cards from '@/views/gam/countManagement/algorithmicManagement/algorithmicIndex.vue'
 import Parameters from '@/views/gam/countManagement/arrangeDetail/flow/ParameterSetting.vue'
 import { i18n, setLocale, elementLocale } from '@/i18n'
-localStorage.setItem('platformType', '15')
 const query = new URLSearchParams(location.search)
 setLocale(query.get('locale') || 'zh-CN')
 const count = Number(query.get('count') || 0)

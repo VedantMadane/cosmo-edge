@@ -87,6 +87,7 @@ const variants = [
     if (node.tag !== 'el-form' || !binding(node, 'disabled')) return
     const condition = node.props.find((p) => p.type === 7 && p.name === 'if')
     if (condition) edits.push(replaceLoc(condition.exp.loc, 'false'))
+    else edits.push({ start: node.loc.start.offset + 8, end: node.loc.start.offset + 8, text: ' v-if="false"' })
   }), false],
   ['device capability leak', 'views/box/systemManagement/systemConfig/components/DeviceInfo.vue', (source) => {
     const { descriptor } = parse(source)

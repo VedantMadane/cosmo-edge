@@ -1,34 +1,42 @@
 # Cosmo Model Guard v2 SDK
 
-This directory exposes the public, consumer-facing portion of the formally
-built Model Guard v2 SDK used by CosmoEdge:
+This directory contains the complete Sophon Model Guard SDK delivered in the
+explicitly authorized CosmoEdge fork, following the RK3576 delivery model:
 
 - `include/cosmo_model_guard_v2.h`
 - `lib/libcosmo_model_guard.so*`
+- `bin/cosmo-model-provision`
+- `SDK-MANIFEST.json`
 
 The checked-in AArch64 shared library has the `v2-only` runtime compatibility
-profile. It does not expose the legacy Model Guard ABI.
+profile. It does not expose the legacy Model Guard ABI. The manifest records
+the paired SDK artifacts and their SHA-256 hashes.
 
-The default CosmoEdge build profile remains `public-runtime` for automation
-compatibility; its user-facing artifact is the SOURCE package. The public SDK
-and SOURCE package contain the runtime library and public header, but no
-`bin/cosmo-model-provision` or private signing material. A configured device
-needs only
-`/data/cwaiuserdata/model-guard/device-certificate.bin` to authorize all
-current and future preset models published under the product model key. There
-are no per-model licenses. SOURCE cannot commission a blank device or construct
-or sign a formal production release.
+The default Sophon SDK root is this directory for both `public-runtime` and
+`production-release`. Only an explicit `COSMO_MODEL_GUARD_SDK_ROOT` overrides
+that choice; a directory under `build_output/model-guard-sdk-production/` is
+not selected automatically. An override must pass the same admission checks.
 
-`bin/cosmo-model-provision` is an offline device-initialization tool and is not
-part of the public runtime SDK. It remains ignored by Git and must not be
-force-added. Selecting `production-release` does not create or recover any
-signing key.
+The default build profile remains `public-runtime` (Open). Open packages
+contain the runtime library but exclude `bin/cosmo-model-provision`; checking
+in the complete SDK does not change the package profile. Protected
+(`production-release`) packages include the matching provisioning tool.
+A configured device needs only its Guard device certificate to authorize
+current and future preset models published under the product model key.
+There are no per-model licenses.
 
-This public repository does not contain the private Model Guard source,
-production signing keys, device secrets, or the complete controlled inputs
-required to reconstruct, sign, or deploy a production package. This README
-does not grant or alter artifact licensing or redistribution rights; those
-require separately approved terms from the artifact owner.
+This complete SDK may be checked into the explicitly authorized CosmoEdge fork
+to make its Sophon builds reproducible. This task-scoped authorization is not a
+general relicensing or permission to redistribute the SDK elsewhere. This README
+does not grant or alter artifact licensing or redistribution rights
+beyond that authorization. Upstream or other
+public distribution still requires separately approved terms from the artifact
+owner. The historical approvals below remain limited to their original scope.
+
+The SDK contains no private Guard source, production signing keys, device
+secrets, device certificates, or model-encryption secrets. These must not be
+committed. Selecting `production-release` does not create or recover signing
+keys, authorize a blank device, or grant device-deployment authority.
 
 ## Distribution approval record
 
@@ -60,15 +68,21 @@ The independent RKNN OTP implementation is unchanged.
 
 The matching provisioning tool SHA-256 is
 `5a2f80e14359421626eccd88d476aef2a2d84d00383ffc63957baf082ea3e41a`.
-Production builds need this matching tool in `bin/cosmo-model-provision`;
-it remains a local, ignored input and is not part of the public SDK.
+Production builds use this matching checked-in tool at
+`bin/cosmo-model-provision`. The runtime and tool identities above are retained
+from the existing integration; this delivery change does not claim a new build.
 The original distribution references above describe the original integration,
 not a separate upstream review of this runtime update.
 
 ## Verification
 
-The canonical public Sophon build invokes
-`scripts/verify_model_guard_v2_sdk.py` for the checked-in runtime SDK:
+Sophon builds invoke `scripts/verify_model_guard_v2_sdk.py` before compilation
+for SDK admission. Production admission verifies the complete manifest and
+matching runtime/provisioner identities. Package auditing checks the packaged
+artifacts against the same SDK manifest. Open package auditing still rejects
+a bundled provisioning tool.
+
+For the default Open profile:
 
 ```bash
 /usr/bin/python3 -I -B scripts/verify_model_guard_v2_sdk.py \

@@ -1,8 +1,8 @@
 import { readFile } from 'node:fs/promises'
 import path from 'node:path'
-import { fileURLToPath } from 'node:url'
+import { fileURLToPath, pathToFileURL } from 'node:url'
 import vm from 'node:vm'
-import { parse, compileScript } from 'vue/compiler-sfc'
+import { parse, compileScript, compileTemplate, rewriteDefault } from 'vue/compiler-sfc'
 
 // Load production ESM without rewriting its source or exposing test-only APIs.
 // The override lets the same checks exercise a saved parent source tree.
@@ -17,7 +17,11 @@ export const loadBehaviorModule = async (entry, { mocks = {}, globals = {}, env 
     if (!id.endsWith('.vue')) return source
     const { descriptor, errors } = parse(source, { filename: id })
     if (errors.length) throw errors[0]
-    return compileScript(descriptor, { id, inlineTemplate: true }).content
+    const script = compileScript(descriptor, { id, inlineTemplate: true })
+    if (descriptor.scriptSetup) return script.content
+    const template = compileTemplate({ source: descriptor.template.content, filename: id, id })
+    if (template.errors.length) throw template.errors[0]
+    return `${rewriteDefault(script.content, '__component')}\n${template.code}\n__component.render = render; export default __component`
   }
   const load = async (specifier, parent = path.join(sourceRoot, 'entry.js')) => {
     const mocked = Object.hasOwn(mocks, specifier)
@@ -33,7 +37,7 @@ export const loadBehaviorModule = async (entry, { mocks = {}, globals = {}, env 
       : new vm.SourceTextModule(await moduleSource(id), {
         context,
         identifier: id,
-        initializeImportMeta(meta) { meta.env = env }
+        initializeImportMeta(meta) { meta.env = env; meta.url = pathToFileURL(id).href }
       })
     modules.set(id, module)
     await module.link((dependency, importer) => load(dependency, importer.identifier))

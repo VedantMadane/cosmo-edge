@@ -8,7 +8,7 @@ import {
   flattenTaskParamTree,
   getParamDependencyCycleBreakIndexes,
   getTaskParamSchemaFingerprint,
-  isChannelEditableInContext,
+  isChannelEditableParam,
   isChannelParamRenderableAtDepth,
   mergeTaskParamSchemasByKey,
   normalizeChannelEditorVisibility,
@@ -461,31 +461,27 @@ assert.deepEqual(
 
 assert.deepEqual(
   normalizeChannelEditorVisibility(
-    { key: 'explicitVisible', senior: 2, channelEditable: true },
-    '15'
+    { key: 'explicitVisible', senior: 2, channelEditable: true }
   ),
   { key: 'explicitVisible', senior: 0, channelEditable: true }
 )
 assert.deepEqual(
   normalizeChannelEditorVisibility(
-    { key: 'sceneOnly', senior: 2, channelEditable: false },
-    '15'
+    { key: 'sceneOnly', senior: 2, channelEditable: false }
   ),
   { key: 'sceneOnly', senior: 2, channelEditable: false }
 )
 assert.deepEqual(
   normalizeChannelEditorVisibility(
-    { key: 'legacyVisible', senior: 1, channelEditable: false },
-    '15'
+    { key: 'legacyVisible', senior: 1, channelEditable: false }
   ),
   { key: 'legacyVisible', senior: 0, channelEditable: false }
 )
 assert.deepEqual(
   normalizeChannelEditorVisibility(
-    { key: 'platformAdvanced', senior: 2, channelEditable: true },
-    '1'
+    { key: 'advanced', senior: 2, channelEditable: true }
   ),
-  { key: 'platformAdvanced', senior: 2, channelEditable: true }
+  { key: 'advanced', senior: 0, channelEditable: true }
 )
 
 assert.deepEqual(
@@ -853,22 +849,12 @@ const edgeOnlyParams = [
   { key: 'cycle', type: 'switch', dependsOn: { key: 'cycle', value: '1' } }
 ]
 assert.deepEqual(
-  filterChannelEditableParams(edgeOnlyParams, '15').map((param) => param.key),
-  ['FaceCheck', 'explicitFalse']
-)
-assert.deepEqual(filterChannelEditableParams(edgeOnlyParams, '1'), edgeOnlyParams)
-assert.deepEqual(filterChannelEditableParams(edgeOnlyParams, 1), edgeOnlyParams)
-assert.deepEqual(
-  filterChannelEditableParams(edgeOnlyParams, '01').map((param) => param.key),
-  ['FaceCheck', 'explicitFalse']
-)
-assert.deepEqual(
   filterChannelEditableParams(edgeOnlyParams).map((param) => param.key),
   ['FaceCheck', 'explicitFalse']
 )
 assert.equal(
-  isChannelEditableInContext({ channelEditable: false }, '1'),
-  true
+  isChannelEditableParam({ senior: 2, channelEditable: false }),
+  false
 )
 
 console.log('task parameter ownership checks passed')

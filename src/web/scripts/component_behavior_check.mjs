@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict'
+import { reactive } from 'vue'
 import { mountComponent } from './helpers/mount_behavior_component.mjs'
 
 const parameter = await mountComponent('views/gam/countManagement/arrangeDetail/flow/ParameterSetting.vue', {
@@ -44,10 +45,10 @@ try {
   assert.equal(requests, 1)
 } finally { device.unmount() }
 
-for (const platform of ['1', '15']) {
+for (const platform of ['1', '-1', null, '15']) {
   for (const match of [true, false]) {
     const form = await mountComponent('views/gam/taskManager/editTask/dynamicForm.vue', {
-      props: { params: [
+      props: { modelValue: [
         { key: 'mode', type: 'switch', name: 'Mode', value: match ? '1' : '0', senior: 0 },
         { key: 'child', type: 'text', name: 'Child', value: 'kept-value', senior: 0, dependsOn: { key: 'mode', value: '1' } }
       ] },
@@ -56,21 +57,93 @@ for (const platform of ['1', '15']) {
     })
     try {
       const childForms = form.all((n) => n.type === 'el-form' && n.props.model?.key === 'child')
-      assert.equal(childForms.length, platform === '15' || match ? 1 : 0)
-      if (childForms.length) assert.equal(childForms[0].props.disabled, platform === '15' && !match)
-      const data = form.instance.getAllFormData()
+      assert.equal(childForms.length, 1)
+      assert.equal(childForms[0].props.disabled, !match)
+      const data = form.instance.collect()
       assert.equal(data.find((p) => p.key === 'child')?.value, 'kept-value')
     } finally { form.unmount() }
   }
 }
 
-for (const scenario of [
+// Exercise the real SFC across parent echoes, external replacements and resets.
+const formEvents = []
+const editing = await mountComponent('views/gam/taskManager/editTask/dynamicForm.vue', {
+  props: {
+    modelValue: [
+      { key: 'radio', type: 'radio', name: 'Radio', value: '1', senior: 0, isColumn: true, options: [{ name: 'One', value: '1' }, { name: 'Two', value: '2' }] },
+      { key: 'name', type: 'text', name: 'Name', value: 'initial', senior: 0, isColumn: true, regexpr: '^.+$' },
+      { key: 'scene', type: 'text', value: 'must-stay-owned', senior: 2, channelEditable: false }
+    ],
+    'onUpdate:modelValue': value => formEvents.push(value)
+  },
+  mocks: { './distanceDialog.vue': { default: { render: () => null } }, '@/assets/CatchPhoto.png': { default: '' } }
+})
+try {
+  assert.equal(formEvents.length, 0, 'hydrating a form does not emit an edit')
+  editing.all(n => n.type === 'el-radio-group')[0].props.activate('2')
+  await editing.settle()
+  assert.equal(formEvents.length, 1, 'a radio edit emits one model update')
+  assert.equal(formEvents[0].find(p => p.key === 'radio').value, '2')
+  editing.instance.$.props.modelValue = reactive(formEvents[0])
+  await editing.settle()
+  assert.equal(formEvents.length, 1, 'parent echo does not emit again')
+  editing.instance.$.props.modelValue.find(p => p.key === 'name').value = 'reset-in-place'
+  await editing.settle()
+  assert.equal(editing.instance.collect().find(p => p.key === 'name').value, 'reset-in-place')
+  editing.all(n => n.type === 'el-input')[0].props.activate('')
+  assert.equal((await editing.instance.validateAndCollect()).valid, false)
+  editing.all(n => n.type === 'el-input')[0].props.activate('saved-before-blur')
+  const result = await editing.instance.validateAndCollect()
+  assert.equal(result.valid, true)
+  assert.equal(result.params.find(p => p.key === 'name').value, 'saved-before-blur')
+  assert.ok(!result.params.some(p => p.key === 'scene'), 'scene-owned fields never enter the draft')
+  editing.instance.$.props.modelValue = []
+  await editing.settle()
+  assert.equal(editing.instance.collect().length, 0, 'empty replacement clears the draft')
+} finally { editing.unmount() }
+
+const parentConfig = reactive({
+  channelId: 'channel-parent',
+  taskParam: [{ key: 'name', type: 'text', name: 'Name', value: 'initial', senior: 0, isColumn: true }]
+})
+const parameterPanel = await mountComponent('views/gam/taskManager/editTask/paramSetting.vue', {
+  props: { config: parentConfig, algorithmCode: 'algorithm-parent' },
+  mocks: { './distanceDialog.vue': { default: { render: () => null } }, '@/assets/CatchPhoto.png': { default: '' } },
+  globals: { document: { addEventListener() {}, removeEventListener() {} } }
+})
+try {
+  const input = () => parameterPanel.all(n => n.type === 'el-input')[0]
+  input().props.activate('through-parent')
+  await parameterPanel.settle()
+  assert.equal(parentConfig.taskParam[0].value, 'through-parent', 'real parent v-model receives the edit')
+  parentConfig.taskParam[0].value = 'parent-reset'
+  await parameterPanel.settle()
+  assert.equal(input().props.modelValue, 'parent-reset', 'real parent in-place reset reaches the child draft')
+  assert.equal((await parameterPanel.instance.validateAndCollect()).params[0].value, 'parent-reset')
+} finally { parameterPanel.unmount() }
+
+let resolveLibrary
+const library = await mountComponent('views/gam/taskManager/editTask/dynamicForm.vue', {
+  props: { modelValue: [{ key: 'library', type: 'commoditySet', name: 'Library', value: '', senior: 0, isColumn: true }] },
+  mocks: { './distanceDialog.vue': { default: { render: () => null } }, '@/assets/CatchPhoto.png': { default: '' } },
+  api: { boxQueryThingsLibInfo: () => new Promise(resolve => { resolveLibrary = resolve }) }
+})
+try {
+  library.instance.$.props.modelValue = [{ key: 'new', type: 'text', name: 'New', value: 'new-model', senior: 0, isColumn: true }]
+  library.instance.$.props.algorithmCode = 'changed'
+  await library.settle()
+  resolveLibrary({ resData: { thingsLibList: [{ id: 'old-id', name: 'Old' }] } })
+  await library.settle()
+  assert.deepEqual(JSON.parse(JSON.stringify(library.instance.collect().map(p => [p.key, p.value]))), [['new', 'new-model']], 'late library reply cannot modify a new model')
+} finally { library.unmount() }
+
+for (const platform of ['1', '-1', null, '15']) for (const scenario of [
   { search: '?channelId=outer', hash: '#/edit?channelId=hash-channel', expected: 'hash-channel' },
   { search: '?channelCode=legacy', hash: '#/edit', expected: 'resolved-channel', legacy: true },
   { search: '', hash: '#/edit', expected: 'prop-channel' }
 ]) {
   const calls = []
-  const storage = { getItem: () => '15' }
+  const storage = { getItem: key => key === 'platformType' ? platform : null }
   const service = await mountComponent('views/gam/taskManager/editTask/serviceConfig.vue', {
     props: { channelId: 'prop-channel' },
     mocks: {
@@ -94,3 +167,5 @@ for (const scenario of [
 }
 
 console.log('Component behavior checks passed')
+
+await import('./edge_behavior_check.mjs')
