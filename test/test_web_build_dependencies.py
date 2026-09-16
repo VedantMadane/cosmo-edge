@@ -95,6 +95,10 @@ class WebBuildDependencies(unittest.TestCase):
             path = project / 'docs/i18n' / name
             path.parent.mkdir(parents=True, exist_ok=True)
             path.write_text('fixture')
+        for platform in ['bm1688', 'cv186x', 'x86']:
+            path = project / f'data/resource/aiboxresource_{platform}/model_template/yolov8_det.json'
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text('{"models":[{}]}')
         resources = project / 'custom resources'
         for name in ['resource.en-US.json', 'resource.zh-CN.json']:
             path = resources / 'i18n' / name
@@ -138,6 +142,18 @@ class WebBuildDependencies(unittest.TestCase):
         _, build, _ = self.cmake_fixture()
         self.assertNotEqual(self.build(build, 'build-fail').returncode, 0)
         self.assertFalse((build / 'web/web_unified/dist/index.html').exists())
+
+    def test_changed_model_fixture_rechecks_frontend(self):
+        project, build, _ = self.cmake_fixture()
+        self.assertEqual(self.build(build).returncode, 0)
+        self.assertEqual(len(self.records()), 3)
+        entry = build / 'web/web_unified/dist/index.html'
+        model = project / 'data/resource/aiboxresource_x86/model_template/yolov8_det.json'
+        model.write_text('{"models":[{"name":"changed"}]}')
+        newer = entry.stat().st_mtime_ns + 2_000_000_000
+        os.utime(model, ns=(newer, newer))
+        self.assertEqual(self.build(build).returncode, 0)
+        self.assertEqual(len(self.records()), 6, 'changed model fixture must rerun frontend checks')
 
 
 if __name__ == '__main__':

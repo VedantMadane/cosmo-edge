@@ -30,7 +30,12 @@ export async function mountComponent(entry, { props = {}, mocks = {}, globals = 
       '@element-plus/icons-vue': Object.fromEntries(['Plus', 'QuestionFilled', 'CircleCheckFilled', 'Search', 'Upload', 'ArrowDown', 'Delete', 'SwitchButton', 'Menu', 'House', 'View', 'Document', 'VideoCamera', 'Connection', 'Cpu', 'Picture', 'Headset', 'Iphone', 'Link', 'Setting', 'DataBoard', 'Monitor', 'Box'].map(name => [name, name])), ...mocks },
     globals: { setTimeout, clearTimeout, setInterval, clearInterval, URL, URLSearchParams, ...globals }
   })
+  const teleportTargets = new Map()
   const renderer = Vue.createRenderer({
+    querySelector(selector) {
+      if (!teleportTargets.has(selector)) teleportTargets.set(selector, node('teleport-target'))
+      return teleportTargets.get(selector)
+    },
     createElement: node, createText: (text) => node('#text', text), createComment: (text) => node('#comment', text),
     setText: (n, text) => { n.text = text }, setElementText: (n, text) => { n.text = text; n.children = [] },
     parentNode: (n) => n.parent, nextSibling: (n) => n.parent?.children[n.parent.children.indexOf(n) + 1],
