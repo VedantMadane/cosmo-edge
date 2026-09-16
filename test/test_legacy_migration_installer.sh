@@ -10,6 +10,7 @@ active="$root/appfs/cosmo_wander/cwai_data"
 mkdir -p "$payload/scripts" "$payload/bin" "$payload/files/Interface" \
     "$payload/web" "$active/resource/models" "$active/bin"
 cp "$repo/scripts/legacy_migration_install.sh" "$payload/scripts/install.sh"
+cp "$repo/scripts/system-log-cleanup.sh" "$repo/scripts/cosmo-log-cleanup.service" "$payload/scripts/"
 printf 'new\n' >"$payload/bin/cosmo-engine"
 printf '#!/bin/sh\ntouch "$COSMO_MIGRATION_TEST_ROOT/stop.called"\n' >"$payload/scripts/stop.sh"
 printf '#!/bin/sh\n' >"$payload/scripts/start.sh"
@@ -41,21 +42,30 @@ grep -Fxq 'EnvironmentFile=-/appfs/cosmo_wander/cwai_data/share/cosmo/runtime-pa
 grep -Fxq 'Restart=on-failure' "$service"
 grep -Fxq 'RestartSec=10' "$service"
 test -L "$root/etc/systemd/system/multi-user.target.wants/cosmo.service"
+cleanup_service="$root/etc/systemd/system/cosmo-log-cleanup.service"
+cmp "$repo/scripts/cosmo-log-cleanup.service" "$cleanup_service"
+test -L "$root/etc/systemd/system/multi-user.target.wants/cosmo-log-cleanup.service"
+test -x "$active/scripts/system-log-cleanup.sh"
+grep -Fxq 'Before=cosmo.service' "$cleanup_service"
+grep -Fxq 'RemainAfterExit=yes' "$cleanup_service"
 
 # The same permanent MD5 lifecycle must remain valid after the first bridge
 # from main; a later package uses the same installer contract.
 printf 'newer\n' >"$payload/bin/cosmo-engine"
+printf 'stale unit\n' >"$cleanup_service"
 sed -i.bak 's#/appfs/cosmo_wander/cwai_data#/appfs/minivision/mv_data#' "$service"
 rm -f -- "${service}.bak"
 COSMO_MIGRATION_TEST_ROOT="$root" \
     sh "$payload/scripts/install.sh" "$root/install-again.log"
 grep -Fxq newer "$active/bin/cosmo-engine"
+cmp "$repo/scripts/cosmo-log-cleanup.service" "$cleanup_service"
 grep -Fxq existing-model "$active/resource/models/model.nn"
 grep -Fxq 'ExecStart=/appfs/cosmo_wander/cwai_data/scripts/inte_run_start.sh' "$service"
 
 rm -rf -- "$payload" "$active"
 mkdir -p "$payload/scripts" "$payload/bin" "$payload/resource/models" "$active/resource/models"
 cp "$repo/scripts/legacy_migration_install.sh" "$payload/scripts/install.sh"
+cp "$repo/scripts/system-log-cleanup.sh" "$repo/scripts/cosmo-log-cleanup.service" "$payload/scripts/"
 printf 'new\n' >"$payload/bin/cosmo-engine"
 printf '#!/bin/sh\n' >"$payload/scripts/stop.sh"
 printf '#!/bin/sh\n' >"$payload/scripts/start.sh"
@@ -93,6 +103,7 @@ mkdir -p "$rk_payload/scripts" "$rk_payload/bin" "$rk_payload/files/Interface" \
     "$rk_legacy_data/upgrade" "$rk_legacy_data/tmp" "$rk_legacy_data/log" \
     "$rk_legacy_data/cwai" "$rk_legacy_data/runtime" "$rk_legacy_data/web"
 cp "$repo/scripts/legacy_migration_install.sh" "$rk_payload/scripts/install.sh"
+cp "$repo/scripts/system-log-cleanup.sh" "$repo/scripts/cosmo-log-cleanup.service" "$rk_payload/scripts/"
 printf 'new\n' >"$rk_payload/bin/cosmo-engine"
 printf '#!/bin/sh\n' >"$rk_payload/scripts/stop.sh"
 printf '#!/bin/sh\n' >"$rk_payload/scripts/start.sh"
