@@ -364,3 +364,10 @@ TEST_CASE("PathUtil edge: IsWithinRoot empty and repeated separators", "[path-ut
         REQUIRE(IsWithinRoot("/data/a", "/data/a//b"));
     }
 }
+
+TEST_CASE("PathUtil edge: unicode path component", "[path-util][edge]") {
+    SECTION("Chinese characters accepted in safe component") {
+        REQUIRE(IsSafePathComponent("task-01_中文"));
+    }
+}
+
