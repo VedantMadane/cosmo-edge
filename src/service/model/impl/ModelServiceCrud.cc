@@ -22,6 +22,7 @@
 #include "util/ErrorCode.h"
 #include "util/Exception.h"
 #include "util/Exec.h"
+#include "util/FileUtil.h"
 #include "util/JsonFileUtil.h"
 #include "util/JsonStructUtil.h"
 #include "util/PathUtil.h"
@@ -201,15 +202,9 @@ cosmo::util::ErrorEnum ModelServiceImpl::SaveModelConfig(const std::string& mode
     // Validate model output format (throws cosmo::util::ErrorMessage on failure)
     ValidateModelOutputFormat(doc);
 
-    // Write config.json
-    std::ofstream file(config_path);
-    if (!file.is_open()) {
-        LOG_WARN("Failed to open config.json for writing: {}", config_path);
+    if (!cosmo::util::WriteFileAtomically(config_path, configJson)) {
         return cosmo::util::ErrorEnum::SysErr;
     }
-
-    file << configJson;
-    file.close();
 
     LOG_INFO("Successfully saved config.json for modelCode: {}", modelCode);
     NotifyAlgorithmsChanged(modelCode, true);

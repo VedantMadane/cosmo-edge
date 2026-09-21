@@ -527,6 +527,9 @@ Json ManagementService::Handle(const std::string& method, const RequestDispatchC
             result["incarnation"]        = state_["incarnation"];
             result["features"]           = {"idempotent-apply", "resource-inventory", "versioned-resources",
                                             "staged-task"};
+            for (const auto& feature : result.value("nativeFeatures", Json::array()))
+                result["features"].push_back(feature);
+            result.erase("nativeFeatures");
             return result;
         }
         if (method == "prepareresource") {

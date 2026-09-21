@@ -47,3 +47,19 @@ Limits: 1 MiB chunks, 5 GiB files, eight unfinished uploads per account, 24-hour
 SQLite records intent and reserved IDs before effects. Retries reuse those IDs. Native readback, persistence failures and import completion markers prevent receipt-only success. Historical versions, operations and completed blobs remain retained; retention and capacity require deployment-specific validation. Local edits can cause drift and should be reconciled from the platform.
 
 Run `bash scripts/build_cpu_test.sh`, `./build_cpu/cosmo-tests "[management]"`, the complete test suite, `bash scripts/format_check.sh --staged --check` and `npm run docs:verify`. Coverage includes recovery, ownership, immutable versions, dependency protection, upload verification, real HTTP PUT, native task preparation, schedule persistence and ONVIF persistence. Inference, video sources, upgrade rollback and power-loss endurance require separate device acceptance.
+
+
+## Versioned model configuration
+
+The `model-configuration-v1` feature accepts the original model editor JSON as
+`nativeConfig` alongside `chip`, `runtime`, `modelType` and import `config`.
+After inspecting the real model files, the receiver merges model `params`,
+`labels` and generation-model `config.generation` into its native configuration.
+Input/output definitions must match measured tensors exactly; these fields are
+read-only in the original editor. Native IDs, file names, digests and other
+native metadata remain receiver-owned. Invalid chip/type/tensor configurations
+fail. Configuration is written atomically before the managed ready marker.
+
+Check this feature at preflight and execution. Older firmware does not apply
+this extension. Managed archive import and adoption of existing preset models
+are separate capabilities and are not covered by this feature.

@@ -45,6 +45,10 @@ Sophon 通用固件不会把编译期的 BM1688 标签当作硬件测量结果�
 
 模型类型必须使用模板名称，例如 `yolov8_det`、`classify`、`feature`、`ocr`、`dino`。泛称 detector/classifier 不会被猜测成具体网络。模型 config 当前支持 normalizationMode、colorChannel 和 artifactRoles，未知字段明确拒绝。artifactRoles 将文件名映射为 model、encoder、decoder、vocab、tokenizer、characters 等原生角色。模型字节必须匹配运行时，不能靠改扩展名转换。
 
+使用 `model-configuration-v1` 能力时，可在模型载荷的同级 `nativeConfig` 中提交原配置页 JSON。接收端在实际文件生成的原生配置上合并各模型的 `params`、`labels` 和生成模型的 `config.generation`；输入/输出节点必须与实际模型完全一致（原页面也是只读）。本地模型编号、文件名、摘要和其他原生字段保持接收端值。芯片、模型类型、节点数量或张量不一致会失败。配置原子写入并同步后才写入模型就绪标记。
+
+旧固件不声明此能力，平台必须在预检和执行时检查，不能发送后假定参数已生效。模型包导入及既有预置资源纳管不包含在此能力中。
+
 通道支持 RTSP、USB、本地视频和 GB28181 源。ONVIF 支持已解析的 RTSP 地址，或通过 `config.onvif` 提供原有保存参数（endpoint、username、password、profileToken 等）；完整配置保存为独立、可重试的源。GB28181 仍需对应 SIP 设备注册和源就绪。
 
 任务版本使用独立执行场景保存参数，模型通过版本引用共享。`activationPolicy: prepare` 不会启用任务。启用新版先停旧版，停用关闭同一逻辑任务的全部版本。时间窗口外报告 scheduled，启动中报告 starting，初始化失败不会报告 running；平台必须通过 Inventory 确认最终状态。

@@ -14,6 +14,7 @@
 #include "service/camera/ICameraDeviceCrud.h"
 #include "service/camera/ICameraTaskConfig.h"
 #include "service/detail/ServiceRegistry.h"
+#include "service/management/ManagedModelConfig.h"
 #include "service/management/ManagementService.h"
 #include "service/model/IModelService.h"
 #include "service/onvif/IOnvifService.h"
@@ -233,7 +234,8 @@ namespace {
             return {{"sn", Service<IDeviceHardware>().GetDevSn()},
                     {"chip", NativeChip()},
                     {"runtimes", {NativeRuntime()}},
-                    {"resourceKinds", {"model", "scene", "channel", "schedule", "task"}}};
+                    {"resourceKinds", {"model", "scene", "channel", "schedule", "task"}},
+                    {"nativeFeatures", {"model-configuration-v1"}}};
         }
 
         bool Exists(const std::string& kind, const std::string& id) override {
@@ -572,6 +574,13 @@ namespace {
                     }
                 }
                 Check(Service<IModelService>().AddManagedModel(id, request));
+                if (config.contains("nativeConfig")) {
+                    std::string current, defaults;
+                    bool exportable = false;
+                    Check(Service<IModelService>().GetModelConfig(id, current, exportable, defaults));
+                    const auto merged = MergeManagedModelConfig(Json::parse(current), config["nativeConfig"]);
+                    Check(Service<IModelService>().SaveModelConfig(id, merged.dump()));
+                }
                 const auto directory = ModelDirectory(id);
                 for (const auto& file : fs::recursive_directory_iterator(directory)) {
                     if (file.is_regular_file())
