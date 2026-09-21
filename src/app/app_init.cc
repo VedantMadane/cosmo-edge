@@ -1,6 +1,5 @@
+#include "service/management/ManagementService.h"
 // app_init — app_init implementation.
-
-#include "app/app_init.h"
 
 #include <cassert>
 #include <cstdlib>
@@ -12,6 +11,7 @@
 #include "RuntimePathsConfig.h"
 #include "api/ApiRouter.h"
 #include "app/AppConstants.h"
+#include "app/app_init.h"
 #include "media/IOsdTextRenderer.h"
 #include "media/OsdTextRenderer.h"
 #include "service/ai/impl/InferPoolServiceImpl.h"
@@ -293,6 +293,10 @@ static void RegisterBusinessServices() {
     registry.Register<cosmo::service::IActionService>(std::make_unique<cosmo::service::ActionServiceImpl>());
     registry.Register<cosmo::service::IClientMessageService>(
         std::make_unique<cosmo::service::ClientMessageServiceImpl>());
+
+    registry.Register<cosmo::service::IManagementService>(std::make_unique<cosmo::service::ManagementService>(
+        std::filesystem::path(cosmo::path::GetCfgPath()) / "management",
+        cosmo::service::MakeNativeManagedResources()));
 
     auto appInfoService = std::make_unique<cosmo::service::AppInfoServiceImpl>();
     appInfoService->SetDevId(registry.Get<cosmo::service::IDeviceHardware>().GetDevSn());

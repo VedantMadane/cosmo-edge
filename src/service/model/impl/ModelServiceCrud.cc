@@ -380,6 +380,14 @@ cosmo::util::ErrorEnum ModelServiceImpl::ImportModel(const std::string& archiveP
     return import_exporter_.ImportModel(archivePath);
 }
 
+cosmo::util::ErrorEnum ModelServiceImpl::AddManagedModel(const std::string& code,
+                                                         const cosmo::Model::MsgAddRecv& request) {
+    return import_exporter_.AddAtomicModel(code, "managed" + code, request.modelType, request.description,
+                                           request.bmodelFiles, request.vocabFilePath,
+                                           request.tokenizerFilePath, request.characterTableFilePath,
+                                           request.normalizationMode, request.colorChannel, true);
+}
+
 cosmo::util::ErrorEnum ModelServiceImpl::AddAtomicModel(
     const std::string& modelCode, const std::string& modelName, const std::string& model_type,
     const std::string& description, const std::vector<cosmo::Model::BmodelFileInfo>& bmodel_files,

@@ -1,6 +1,7 @@
 add_library(cosmo_api OBJECT
     ApiRouter.cc                    ApiRouter.h
     ApiRouterInternal.h
+    ApiRouterManagement.cc
     ApiRouterRoutes.cc
     MessageAlgorithmHandler.cc      MessageAlgorithmHandler.h
     MessageAudioHandler.cc          MessageAudioHandler.h
