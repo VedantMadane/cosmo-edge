@@ -20,6 +20,22 @@ Paths begin with `/gtw/cwai/Management/`. Use POST JSON except UploadChunk, whic
 
 The first valid write binds platform ID and authenticated account. New sessions retain ownership; silent takeover is unavailable. State lives in the configuration directory under `management/state.sqlite`. Restarts preserve incarnation; factory reset or journal loss changes it. An unidentified Sophon chip returns unknown; the compiled BM1688 label is not hardware evidence.
 
+Chip detection reads both `compatible` and `model` under `/proc/device-tree/` and
+`/sys/firmware/devicetree/base/`, accepting case differences and NUL-separated
+properties. Some BM1688 kernels expose the generic `cvitek,cv181x` compatible;
+an explicit BM1688 identity in `model` supplies the missing evidence. The generic
+compatible alone is never mapped to BM1688. Missing, unrecognized or conflicting
+BM1688/CV186X identities remain `unknown`. Capabilities and model application
+share this detector.
+
+If model creation reports an unknown chip, inspect `Capabilities.chip` and
+upgrade the edge backend containing this fix. Updating only its web assets,
+refreshing the platform or changing the management address cannot repair the
+older backend detector. After upgrading, re-probe the device and verify its
+actual `chip` and the `bmrt` runtime. Full model configuration also requires the
+`model-configuration-v1` feature. CPU/file-fixture checks do not replace
+post-upgrade hardware API and model acceptance.
+
 ## Resource contract
 
 Apply requests carry operationId, platformId, externalId, versionId, hash, incarnation, Unix-second expiresAt, action, kind, name, config, files, references and activationPolicy. An operation ID binds the entire payload. Versions are immutable. Each direct reference carries kind, externalId, versionId and a verified native localId. Files must already be verified.

@@ -14,6 +14,7 @@
 #include "service/camera/ICameraDeviceCrud.h"
 #include "service/camera/ICameraTaskConfig.h"
 #include "service/detail/ServiceRegistry.h"
+#include "service/management/ManagedDeviceChip.h"
 #include "service/management/ManagedModelConfig.h"
 #include "service/management/ManagementService.h"
 #include "service/model/IModelService.h"
@@ -95,16 +96,7 @@ namespace {
         std::transform(chip.begin(), chip.end(), chip.begin(), ::tolower);
         return chip;
 #else
-        // Sophon builds can execute on different chips; the legacy engine label is
-        // hard-coded BM1688 and must not be used as a measured hardware identity.
-        std::ifstream input("/proc/device-tree/compatible", std::ios::binary);
-        std::string chip((std::istreambuf_iterator<char>(input)), {});
-        std::transform(chip.begin(), chip.end(), chip.begin(), ::tolower);
-        if (chip.find("cv186") != std::string::npos)
-            return "cv186x";
-        if (chip.find("bm1688") != std::string::npos)
-            return "bm1688";
-        return "unknown";
+        return detail::ReadSophonManagementChip();
 #endif
     }
 

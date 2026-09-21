@@ -22,6 +22,10 @@
 
 Sophon 通用固件不会把编译期的 BM1688 标签当作硬件测量结果。无法辨认芯片时返回 `unknown` 并拒绝模型下发，避免混用 BM1688 与 CV186X 产物。
 
+芯片识别读取 `/proc/device-tree/` 和 `/sys/firmware/devicetree/base/` 下的 `compatible` 与 `model`，兼容大小写及 NUL 分隔的设备树字段。部分 BM1688 系统的 `compatible` 为通用的 `cvitek,cv181x`，需要从 `model` 中的明确 BM1688 标识识别；不能将 `cv181x` 本身映射成 BM1688。字段缺失、未识别或不同来源的 BM1688/CV186X 标识冲突时继续返回 `unknown`。能力查询和模型接收使用同一识别逻辑。
+
+如果平台选择设备后提示“设备尚未确认芯片型号”，应检查 `Capabilities.chip`，并升级包含上述识别修复的盒子后端。仅更新盒子网页、刷新平台页面或修改管理地址不会改变旧后端的识别结果。升级后在平台重新检测设备，确认 `chip` 为实际芯片、`runtimes` 含 `bmrt`；完整参数下发还需要 `features` 含 `model-configuration-v1`。CPU/文件夹测试不替代实机升级后的接口和模型验收。
+
 ## 发布对象
 
 `ApplyOperation` 包含 `operationId`、`platformId`、`externalId`、`versionId`、`hash`、`incarnation`、Unix 秒 `expiresAt`、`action`、`kind`、`name`、`config`、`files`、`references` 和 `activationPolicy`。
