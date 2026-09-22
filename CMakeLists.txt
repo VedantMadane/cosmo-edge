@@ -634,6 +634,33 @@ endif()
 #Build order: OBJECT libs → third_build (explicit, see foreach above)
 target_link_libraries(${EXECUTABLE_NAME} PRIVATE ${COMMON_LIBS})
 
+# Keep the documented float32 resize operations identical to the reference implementation.
+set_source_files_properties(
+    test/test_vlm_evaluation_preprocess.cc
+    test/test_rk_vlm_evaluation_preprocess.cc
+    PROPERTIES COMPILE_OPTIONS "-ffp-contract=off")
+
+option(BUILD_VLM_EVAL "Build the independent device VLM evaluation CLI" OFF)
+if(BUILD_VLM_EVAL AND NOT COSMO_NN_USE_SOPHON_BACKEND AND NOT COSMO_NN_USE_RKLLM_BACKEND)
+    message(FATAL_ERROR "The VLM evaluation CLI requires Sophon or RKLLM support")
+endif()
+if(BUILD_VLM_EVAL)
+    if(COSMO_NN_USE_SOPHON_BACKEND)
+        set(VLM_EVAL_SOURCE tools/vlm_eval/cosmo_vlm_eval.cc)
+    else()
+        set(VLM_EVAL_SOURCE tools/vlm_eval/cosmo_vlm_eval_rk.cc)
+    endif()
+    add_executable(cosmo-vlm-eval ${VLM_EVAL_SOURCE} ${ALL_OBJECTS})
+    target_include_directories(cosmo-vlm-eval PRIVATE ${CMAKE_SOURCE_DIR}/src)
+    target_link_directories(cosmo-vlm-eval PRIVATE ${DEVICE_LIB_DIR})
+    set_target_properties(cosmo-vlm-eval PROPERTIES INSTALL_RPATH "$ORIGIN/../lib")
+    install(TARGETS cosmo-vlm-eval DESTINATION bin)
+    target_link_libraries(cosmo-vlm-eval PRIVATE nlohmann stb uWebSockets ${COMMON_LIBS})
+    if(COSMO_MODEL_GUARD)
+        target_link_libraries(cosmo-vlm-eval PRIVATE ${COSMO_MODEL_GUARD_LINK_TARGET})
+    endif()
+endif()
+
 if(COSMO_NN_USE_RKNN_BACKEND)
     add_executable(cosmo-rknn-backend-smoke
         tools/rknn/cosmo_rknn_backend_smoke.cc
@@ -1146,6 +1173,9 @@ set(CPACK_OUTPUT_FILE_PREFIX        "${CMAKE_BINARY_DIR}/packages")
 include(CPack)
 
 set(COSMO_PACKAGE_TARGETS ${EXECUTABLE_NAME} web_frontend)
+if(TARGET cosmo-vlm-eval)
+    list(APPEND COSMO_PACKAGE_TARGETS cosmo-vlm-eval)
+endif()
 if(TARGET verify_rknn_packaging_resources)
     list(APPEND COSMO_PACKAGE_TARGETS verify_rknn_packaging_resources)
 endif()
