@@ -20,6 +20,7 @@ const referenceZh = [
   { text: '字段级 API 参考', link: '/reference/api-fields' },
   { text: 'MQTT 接入参考', link: '/reference/mqtt' },
   { text: 'HTTP Webhook 参考', link: '/reference/webhook' },
+  { text: '平台管理接口', link: '/reference/management' },
   { text: '模型与资源', link: '/reference/models' }
 ]
 
@@ -92,6 +93,7 @@ const referenceEn = [
   { text: 'API Fields', link: '/en/reference/api-fields' },
   { text: 'MQTT Reference', link: '/en/reference/mqtt' },
   { text: 'HTTP Webhook Reference', link: '/en/reference/webhook' },
+  { text: 'Platform Management API', link: '/en/reference/management' },
   { text: 'Models and Resources', link: '/en/reference/models' }
 ]
 

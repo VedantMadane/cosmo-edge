@@ -424,11 +424,11 @@ void CameraServiceImpl::DestroyCameraChannel(CameraEntityPtr camera) {
 //  Per-camera task list persistence (inlined from CameraTaskMng)
 // ============================================================
 
-void CameraServiceImpl::SaveCameraTaskList(const CameraEntityPtr& camera) {
+bool CameraServiceImpl::SaveCameraTaskList(const CameraEntityPtr& camera) {
     auto path =
         (std::filesystem::path(cosmo::path::GetCfgPath(camera->conf_file_path_)) / camera->conf_task_list_)
             .string();
-    (void)util::SaveStructToJsonFile(path, camera->tasks_);
+    return util::SaveStructToJsonFile(path, camera->tasks_);
 }
 
 void CameraServiceImpl::LoadCameraTaskList(CameraEntityPtr camera) {
@@ -777,7 +777,7 @@ void CameraServiceImpl::LoadConfig() {
     detail::CameraConfigPersistence::RemoveDiscardedConfigs(conf_file_path_, cameras_);
 }
 
-void CameraServiceImpl::SaveConfig() {
+bool CameraServiceImpl::SaveConfig() {
     LOG_INFO("{}", "Saving configuration...");
 
     std::vector<CameraEntityPtr> snapshot;
@@ -786,7 +786,7 @@ void CameraServiceImpl::SaveConfig() {
         snapshot = cameras_;
     }
 
-    detail::CameraConfigPersistence::SaveConfig(conf_file_path_, conf_file_name_, snapshot);
+    return detail::CameraConfigPersistence::SaveConfig(conf_file_path_, conf_file_name_, snapshot);
 }
 
 void CameraServiceImpl::MemGc() {

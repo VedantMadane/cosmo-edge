@@ -187,11 +187,26 @@ void OnvifServiceImpl::Persist(const std::map<std::string, Entry>& entries) cons
     AtomicWrite(directory_ + "/sources.json", root.dump(2));
 }
 std::string OnvifServiceImpl::Save(const Json& request, const std::string& source) {
+    return SaveSource(request, source, false);
+}
+std::string OnvifServiceImpl::SaveManaged(const Json& request, const std::string& source) {
+    const std::string prefix = "onvif://managed-";
+    if (source.size() != prefix.size() + 32 || source.compare(0, prefix.size(), prefix) != 0 ||
+        source.substr(prefix.size()).find_first_not_of("0123456789abcdef") != std::string::npos)
+        throw std::runtime_error("invalid_parameter");
+    return SaveSource(request, source, true);
+}
+std::string OnvifServiceImpl::SaveSource(const Json& request, const std::string& source, bool managed) {
     if (!ready_)
         throw std::runtime_error("storage_error");
     // Serialize configuration transactions only; readers and network work never take writer_mtx_.
     std::lock_guard<std::mutex> writer(writer_mtx_);
-    auto config = ReadRequest(request, source);
+    bool exists = false;
+    {
+        std::lock_guard<std::mutex> lock(entries_mtx_);
+        exists = entries_.count(source) != 0;
+    }
+    auto config = ReadRequest(request, managed && !exists ? "" : source);
     if (config.profileToken.empty())
         throw std::runtime_error("no_profile_selected");
     const auto id = source.empty() ? "onvif://" + util::GenerateUUID() : source;
@@ -200,10 +215,11 @@ std::string OnvifServiceImpl::Save(const Json& request, const std::string& sourc
         std::lock_guard<std::mutex> lock(entries_mtx_);
         candidate = entries_;
     }
-    if (source.empty() && candidate.size() >= 256)
+    if (!candidate.count(id) && candidate.size() >= 256)
         throw std::runtime_error("source_limit");
     for (const auto& item : candidate) {
-        if (item.first != id && item.second.config.endpoint == config.endpoint &&
+        if (item.first != id && !(managed && item.first.compare(0, 16, "onvif://managed-") == 0) &&
+            item.second.config.endpoint == config.endpoint &&
             item.second.config.profileToken == config.profileToken)
             throw std::runtime_error("duplicate_source");
     }
