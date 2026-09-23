@@ -7,6 +7,8 @@ add_library(cosmo_api OBJECT
     MessageAuthHandler.cc           MessageAuthHandler.h
     MessageBodyLibHandler.cc        MessageBodyLibHandler.h
     MessageCameraHandler.cc         MessageCameraHandler.h
+    MessageCameraOnvif.cc
+    MessageCameraGb28181.cc
     MessageEventHandler.cc          MessageEventHandler.h
     MessageFaceLibHandler.cc        MessageFaceLibHandler.h
     MessageFaceLibHandler_ModifyLib.cc

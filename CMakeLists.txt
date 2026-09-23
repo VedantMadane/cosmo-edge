@@ -463,6 +463,7 @@ include(cmake/mp4v2.cmake)
 include(cmake/openssl.cmake)
 include(cmake/cryptopp.cmake)
 include(cmake/curl.cmake)
+include(cmake/tinyxml2.cmake)
 include(cmake/mqtt.cmake)
 include(cmake/event.cmake)
 include(cmake/ffmpeg.cmake)
@@ -575,7 +576,7 @@ set(ALL_OBJECTS
 #Common link libraries(shared by main executable and tests)
 set(COMMON_LIBS
     stdc++fs fmt glog cryptopp SQLiteCpp sqlite3 uSockets uuid z pcap
-    openssl_ssl openssl_crypto curl
+    openssl_ssl openssl_crypto curl cosmo_xml
     event_core event_extra event
     mqtt_c mqtt_cs
     ffmpeg_avcodec ffmpeg_avdevice ffmpeg_avfilter
