@@ -130,7 +130,8 @@ util::ErrorEnum CameraServiceImpl::Add(MsgCameraInfo& config, std::string& id) {
     // Immediately trigger a health probe to quickly update channel status to online.
     // This may block for up to the TCP probe timeout, so it must not hold mtx_.
     ProbeCameraOnlineStatusNow(camera);
-    SaveConfig();
+    if (!SaveConfig())
+        return util::ErrorEnum::SysErr;
     return util::ErrorEnum::Success;
 }
 
@@ -177,7 +178,8 @@ util::ErrorEnum CameraServiceImpl::Update(MsgCameraInfo& config) {
     }
     // Editing channel may have changed URL; trigger immediate probe to update status.
     ProbeCameraOnlineStatusNow(camera);
-    SaveConfig();
+    if (!SaveConfig())
+        return util::ErrorEnum::SysErr;
     return util::ErrorEnum::Success;
 }
 
@@ -230,7 +232,8 @@ util::ErrorEnum CameraServiceImpl::Delete(const std::string& videoChannelId) {
     }
 
     // Save config (thread-safe)
-    SaveConfig();
+    if (!SaveConfig())
+        return util::ErrorEnum::SysErr;
     if (static_cast<MsgCameraType>(target->channelType) == MsgCameraType::MsgCameraTypeOnvif &&
         ServiceRegistry::Instance().Has<IOnvifService>()) {
         try {

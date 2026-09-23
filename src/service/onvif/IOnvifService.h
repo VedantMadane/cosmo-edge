@@ -3,6 +3,7 @@
 #include <atomic>
 #include <cstdint>
 #include <nlohmann/json.hpp>
+#include <stdexcept>
 #include <string>
 
 namespace cosmo::service {
@@ -17,7 +18,10 @@ struct OnvifSourceResult {
 // Resolve runs on the existing per-channel demux thread, not on the camera CRUD lock.
 class IOnvifService {
 public:
-    virtual ~IOnvifService()                                                                       = default;
+    virtual ~IOnvifService() = default;
+    virtual std::string SaveManaged(const nlohmann::json&, const std::string&) {
+        throw std::runtime_error("managed_source_unsupported");
+    }
     virtual void Init()                                                                            = 0;
     virtual nlohmann::json Interfaces() const                                                      = 0;
     virtual nlohmann::json Discover(const std::string& interfaceAddress, int timeoutMs)            = 0;

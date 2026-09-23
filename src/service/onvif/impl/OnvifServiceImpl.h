@@ -11,6 +11,7 @@ namespace cosmo::service {
 class OnvifServiceImpl final : public IOnvifService {
 public:
     void Init() override;
+    std::string SaveManaged(const nlohmann::json& request, const std::string& source) override;
     nlohmann::json Interfaces() const override;
     nlohmann::json Discover(const std::string& interfaceAddress, int timeoutMs) override;
     nlohmann::json Probe(const nlohmann::json& request) override;
@@ -22,6 +23,7 @@ public:
     void Invalidate(const std::string& source) override;
 
 private:
+    std::string SaveSource(const nlohmann::json& request, const std::string& source, bool managed);
     struct Entry {
         onvif::Config config;
         uint64_t revision{1};
