@@ -256,7 +256,7 @@ TEST_CASE("PathUtil: strict root resolution fails closed", "[path-util][security
 }
 
 TEST_CASE("PathUtil: path component validation", "[path-util][security]") {
-    REQUIRE(IsSafePathComponent("task-01_ä¸­æ–‡"));
+    REQUIRE(IsSafePathComponent("task-01_中文"));
     REQUIRE_FALSE(IsSafePathComponent(""));
     REQUIRE_FALSE(IsSafePathComponent("."));
     REQUIRE_FALSE(IsSafePathComponent(".."));
