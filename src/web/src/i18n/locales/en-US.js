@@ -1,5 +1,7 @@
 export default {
   gbAccess: {
+    mediaTransport: 'Video transport', transportTip: 'Registration supports TCP and UDP automatically. Video defaults to TCP; choose UDP for UDP-only media devices. Changes require device re-registration.',
+    udpMediaListenFailed: 'Cannot listen on the UDP video port. Check for a port conflict.',
     title: 'GB28181 access', platformTab: 'Platform', devicesTab: 'Devices & channels',
     platformTip: 'Save the platform settings, then enter matching SIP settings on the camera. Saving disconnects existing GB registrations; cameras recover after registering again.',
     enabled: 'Enable GB28181', platformId: 'SIP server ID', realm: 'SIP server domain', address: 'SIP server address',
@@ -13,7 +15,7 @@ export default {
     listening: 'SIP listener is active', notListening: 'SIP listener is inactive', deviceId: 'Device ID / SIP username',
     deviceAddress: 'Device address', password: 'SIP password', passwordHint: 'Match the camera platform-access password', keepPassword: 'Leave blank to keep the saved password',
     deviceTip: 'Register a device ID and SIP password first. After the camera registers, its catalog is queried automatically. Expand a device to add channels.',
-    advanced: 'Advanced authentication', authId: 'SIP authentication ID', sameAsId: 'Defaults to the device ID',
+    advanced: 'Advanced settings', authId: 'SIP authentication ID', sameAsId: 'Defaults to the device ID',
     noAuth: 'Compatibility: skip password verification for this device', noAuthWarning: 'Trusted isolated networks only. Matching an ID does not authenticate the device; another device could impersonate it.',
     deviceListTip: 'Channels are discovered automatically. Edit names and add channels. Status refreshes every 3 seconds.', empty: 'No registered devices. Enter a device ID and SIP password above.',
     emptyCatalog: 'No channels. Configure platform access on the camera, confirm registration, then query its catalog.', channelId: 'Video channel ID',
@@ -26,8 +28,8 @@ export default {
     storageError: 'Configuration storage unavailable. Check the configuration and key backup.', listenFailed: 'Cannot listen on SIP port. Check for a port conflict.',
     realmInUse: 'Remove device registrations before changing the domain, then set their SIP passwords again.',
     catalogTimeout: 'Catalog query timed out. Check device support and retry.', catalogInvalid: 'The device returned an inconsistent or incomplete catalog.',
-    mediaUnavailable: 'Media service unavailable or incompatible with managed GB28181', mediaTimeout: 'Media missing or interrupted after a successful invite. Check TCP media port and advertised address.',
-    inviteTimeout: 'Device did not answer the invite', transportError: 'Device did not accept active PS/TCP publishing. Check transport and TCP role.',
+    mediaUnavailable: 'Media service unavailable or incompatible with managed GB28181', mediaTimeout: 'Media missing or interrupted after a successful invite. Check the selected TCP/UDP media port and SIP server address.',
+    inviteTimeout: 'Device did not answer the invite', transportError: 'Device rejected the selected video transport. Check TCP/UDP settings and active TCP publishing support.',
     connectionClosed: 'Device SIP connection closed', heartbeatTimeout: 'Registration or heartbeat expired; waiting for registration', protocolError: 'Incompatible device signaling format',
     inviteRejected: 'Device rejected the invite, SIP status {code}', unavailable: 'GB28181 service unavailable. Check runtime status.',
     unregistered: 'Waiting for registration', registered: 'Registered', authFailed: 'Authentication failed', catalogQuery: 'Querying catalog', catalogFailed: 'Catalog query failed',

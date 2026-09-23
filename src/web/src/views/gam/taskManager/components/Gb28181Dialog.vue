@@ -42,6 +42,8 @@
           <el-collapse>
             <el-collapse-item :title="t('gbAccess.advanced')" name="advanced">
               <el-form-item :label="t('gbAccess.authId')"><el-input v-model.trim="deviceForm.username" :placeholder="t('gbAccess.sameAsId')" /></el-form-item>
+              <el-form-item :label="t('gbAccess.mediaTransport')"><el-select v-model="deviceForm.mediaTransport"><el-option value="tcp" label="TCP" /><el-option value="udp" label="UDP" /></el-select></el-form-item>
+              <p>{{ t('gbAccess.transportTip') }}</p>
               <el-checkbox v-model="deviceForm.allowUnauthenticated">{{ t('gbAccess.noAuth') }}</el-checkbox>
               <el-alert v-if="deviceForm.allowUnauthenticated" :title="t('gbAccess.noAuthWarning')" type="warning" :closable="false" />
             </el-collapse-item>
@@ -81,7 +83,7 @@ const emit = defineEmits(['saved'])
 const visible = ref(false), busy = ref(false), ready = ref(false), tab = ref('devices'), devices = ref([])
 const message = ref(''), messageType = ref('info'), listening = ref(false), serviceError = ref(''), editing = ref(false)
 const platform = reactive({ enabled: false, platformId: '', realm: '', address: '', sipPort: 5060, heartbeatTimeout: 180 })
-const deviceForm = reactive({ id: '', username: '', password: '', hasPassword: false, allowUnauthenticated: false })
+const deviceForm = reactive({ id: '', username: '', password: '', hasPassword: false, allowUnauthenticated: false, mediaTransport: 'tcp' })
 const browserHost = window.location.hostname
 const addresses = ref([]), addressChoice = ref('auto'), addressLoading = ref(false), addressWarning = ref(''), addressAdvanced = ref([])
 let timer, generation = 0, refreshing = false
@@ -109,7 +111,7 @@ async function api(data) {
   return response.resData
 }
 function fail(error) { messageType.value = 'error'; message.value = errorText(error.message) }
-function resetDevice() { editing.value = false; Object.assign(deviceForm, { id: '', username: '', password: '', hasPassword: false, allowUnauthenticated: false }) }
+function resetDevice() { editing.value = false; Object.assign(deviceForm, { id: '', username: '', password: '', hasPassword: false, allowUnauthenticated: false, mediaTransport: 'tcp' }) }
 async function refresh(loadPlatform = false) {
   if (refreshing || !visible.value) return
   const token = generation
@@ -164,7 +166,7 @@ async function saveDevice() {
   try { const data = deviceRequest(deviceForm); await perform(data, resetDevice) }
   catch (error) { fail(error) }
 }
-function editDevice(row) { editing.value = true; Object.assign(deviceForm, { id: row.id, username: row.username, password: '', hasPassword: row.hasPassword, allowUnauthenticated: row.allowUnauthenticated }) }
+function editDevice(row) { editing.value = true; Object.assign(deviceForm, { id: row.id, username: row.username, password: '', hasPassword: row.hasPassword, allowUnauthenticated: row.allowUnauthenticated, mediaTransport: row.mediaTransport || 'tcp' }) }
 async function queryCatalog(row) { await perform({ action: 'catalog', id: row.id }) }
 async function addChannel(device, channel) {
   if (!channel.channelName.trim()) { fail(new Error('invalid_parameter')); return }
