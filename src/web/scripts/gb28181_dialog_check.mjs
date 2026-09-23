@@ -129,6 +129,16 @@ test('GB editing preserves omitted password and supports a different authenticat
   assert.equal(save.username, 'auth-account'); assert.equal(Object.hasOwn(save, 'password'), false)
   d.state.close(); d.stop()
 })
+test('GB media transport defaults to TCP, preserves UDP edits and clears on reset', async () => {
+  const d = await dialog(); await d.state.open()
+  assert.equal(d.state.deviceForm.mediaTransport, 'tcp')
+  d.state.editDevice({ ...device, mediaTransport: 'udp' }); await d.state.saveDevice()
+  assert.equal(d.calls.find(c => c.action === 'saveDevice').mediaTransport, 'udp')
+  assert.equal(d.state.deviceForm.mediaTransport, 'tcp')
+  d.state.editDevice(device); await d.state.saveDevice()
+  assert.equal(d.calls.filter(c => c.action === 'saveDevice').at(-1).mediaTransport, 'tcp')
+  d.state.close(); d.stop()
+})
 test('GB catalog refresh preserves edited names and adds the channel ID not the device ID', async () => {
   const d = await dialog(); await d.state.open()
   d.state.devices.value[0].channels[0].channelName = 'Custom name'; await d.state.refresh()

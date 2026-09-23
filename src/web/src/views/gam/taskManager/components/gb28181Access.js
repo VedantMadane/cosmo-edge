@@ -27,6 +27,7 @@ export function errorText(code = '') {
     listen_failed: t('gbAccess.listenFailed'), realm_in_use: t('gbAccess.realmInUse'),
     catalog_timeout: t('gbAccess.catalogTimeout'), catalog_invalid: t('gbAccess.catalogInvalid'),
     media_unavailable: t('gbAccess.mediaUnavailable'), media_timeout: t('gbAccess.mediaTimeout'),
+    udp_media_listen_failed: t('gbAccess.udpMediaListenFailed'),
     invite_timeout: t('gbAccess.inviteTimeout'), unsupported_transport: t('gbAccess.transportError'),
     connection_closed: t('gbAccess.connectionClosed'), registration_or_heartbeat_timeout: t('gbAccess.heartbeatTimeout'),
     invalid_sip: t('gbAccess.protocolError')
@@ -56,7 +57,9 @@ export function deviceRequest(form) {
   const username = form.username.trim() || id
   if (!/^\d{20}$/.test(id) || !/^[\w.@-]{1,256}$/.test(username)) throw new Error('invalid_parameter')
   if (!form.allowUnauthenticated && !form.password && !form.hasPassword) throw new Error('password_required')
-  const result = { action: 'saveDevice', id, username, allowUnauthenticated: !!form.allowUnauthenticated }
+  const mediaTransport = form.mediaTransport || 'tcp'
+  if (!['tcp', 'udp'].includes(mediaTransport)) throw new Error('invalid_parameter')
+  const result = { action: 'saveDevice', id, username, allowUnauthenticated: !!form.allowUnauthenticated, mediaTransport }
   if (form.password) result.password = form.password
   return result
 }

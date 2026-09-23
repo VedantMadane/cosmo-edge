@@ -5,7 +5,7 @@
 #include <vector>
 
 namespace cosmo::service::gb {
-// This bounded TCP subset is intentionally not a general SIP proxy.
+// This bounded direct-device subset is intentionally not a general SIP proxy.
 struct Message {
     std::string method, uri, body;
     int status{0};
@@ -34,6 +34,6 @@ struct XmlMessage {
 XmlMessage ParseXml(const std::string& body);
 std::string CatalogQuery(const std::string& platformId, const std::string& sn);
 std::string Offer(const std::string& platformId, const std::string& address, int port,
-                  const std::string& ssrc);
-bool AcceptsOffer(const std::string& sdp);
+                  const std::string& ssrc, bool udp = false);
+bool AcceptsOffer(const std::string& sdp, bool udp = false);
 }  // namespace cosmo::service::gb

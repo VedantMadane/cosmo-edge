@@ -1,5 +1,7 @@
 export default {
   gbAccess: {
+    mediaTransport: '视频传输协议', transportTip: '注册信令自动兼容 TCP/UDP。视频默认 TCP；仅支持 UDP 视频的设备请选择 UDP。修改后设备需重新注册。',
+    udpMediaListenFailed: 'UDP 视频端口监听失败，请检查端口占用',
     title: '国标设备接入', platformTab: '平台设置', devicesTab: '设备与通道',
     platformTip: '先保存平台设置，再在摄像机中填写相同的 SIP 参数。保存会断开已有国标注册，摄像机会在重注册后恢复。',
     enabled: '启用国标接入', platformId: 'SIP 服务器 ID', realm: 'SIP 服务器域', address: 'SIP 服务器地址',
@@ -13,7 +15,7 @@ export default {
     listening: 'SIP 监听已开启', notListening: 'SIP 监听未开启', deviceId: '设备编码 / SIP 用户名',
     deviceAddress: '设备地址', password: 'SIP 认证密码', passwordHint: '与摄像机平台接入密码一致', keepPassword: '留空保留已保存密码',
     deviceTip: '先登记设备编码和 SIP 密码。摄像机注册成功后自动查询通道目录，展开设备即可添加视频通道。',
-    advanced: '高级认证设置', authId: 'SIP 用户认证 ID', sameAsId: '默认与设备编码相同',
+    advanced: '高级设置', authId: 'SIP 用户认证 ID', sameAsId: '默认与设备编码相同',
     noAuth: '兼容模式：此设备不校验密码', noAuthWarning: '仅限可信隔离网络。此模式只校验编码，不证明设备身份，其他设备可能冒用该编码。',
     deviceListTip: '目录自动获取，可修改通道名称后添加。状态每 3 秒刷新。', empty: '尚未登记设备，请先填写上方设备编码和 SIP 密码。',
     emptyCatalog: '暂无通道。请先在摄像机配置平台接入，确认已注册，再查询目录。', channelId: '视频通道编码 ID',
@@ -26,8 +28,8 @@ export default {
     storageError: '配置存储不可用，请检查配置和密钥备份', listenFailed: 'SIP 端口监听失败，请检查端口是否被占用',
     realmInUse: '已有设备登记，请先删除登记再修改域，并重新设置 SIP 密码',
     catalogTimeout: '目录查询超时，请检查设备支持情况并重试', catalogInvalid: '设备返回的目录数据不完整或不一致',
-    mediaUnavailable: '媒体服务不可用或不支持此版本的国标管理', mediaTimeout: '点播已应答，但媒体未到达或已中断，请检查 TCP 媒体端口和通告地址',
-    inviteTimeout: '设备未应答点播请求', transportError: '设备未接受 PS/TCP 主动推流，请检查传输协议和 TCP 角色',
+    mediaUnavailable: '媒体服务不可用或不支持此版本的国标管理', mediaTimeout: '点播已应答，但媒体未到达或已中断，请检查所选 TCP/UDP 媒体端口和 SIP 服务器地址',
+    inviteTimeout: '设备未应答点播请求', transportError: '设备未接受所选视频传输协议，请检查 TCP/UDP 设置及 TCP 主动推流能力',
     connectionClosed: '设备的 SIP 连接已断开', heartbeatTimeout: '注册或心跳已超时，等待设备重新注册', protocolError: '设备信令格式不兼容',
     inviteRejected: '设备拒绝点播，SIP 状态码 {code}', unavailable: '国标服务不可用，请检查运行状态',
     unregistered: '等待注册', registered: '已注册', authFailed: '认证失败', catalogQuery: '正在查询目录', catalogFailed: '目录查询失败',

@@ -287,14 +287,13 @@ std::string CatalogQuery(const std::string& platformId, const std::string& sn) {
            "</SN><DeviceID>" + platformId + "</DeviceID></Query>\r\n";
 }
 std::string Offer(const std::string& platformId, const std::string& address, int port,
-                  const std::string& ssrc) {
+                  const std::string& ssrc, bool udp) {
     return "v=0\r\no=" + platformId + " 0 0 IN IP4 " + address + "\r\ns=Play\r\nc=IN IP4 " + address +
-           "\r\nt=0 0\r\nm=video " + std::to_string(port) +
-           " TCP/RTP/AVP 96\r\na=recvonly\r\na=rtpmap:96 "
-           "PS/90000\r\na=setup:passive\r\na=connection:new\r\ny=" +
-           ssrc + "\r\nf=\r\n";
+           "\r\nt=0 0\r\nm=video " + std::to_string(port) + (udp ? " RTP/AVP" : " TCP/RTP/AVP") +
+           " 96\r\na=recvonly\r\na=rtpmap:96 PS/90000\r\n" +
+           (udp ? "" : "a=setup:passive\r\na=connection:new\r\n") + "y=" + ssrc + "\r\nf=\r\n";
 }
-bool AcceptsOffer(const std::string& sdp) {
+bool AcceptsOffer(const std::string& sdp, bool udp) {
     // Absence of setup is tolerated for older devices which initiate TCP anyway.
     bool video = false, ps = false;
     std::istringstream lines(sdp);
@@ -305,7 +304,7 @@ bool AcceptsOffer(const std::string& sdp) {
             std::istringstream media(line);
             std::string kind, port, protocol, payload;
             media >> kind >> port >> protocol;
-            if (port == "0" || protocol != "TCP/RTP/AVP")
+            if (port == "0" || protocol != (udp ? "RTP/AVP" : "TCP/RTP/AVP"))
                 return false;
             while (media >> payload)
                 if (payload == "96")
@@ -313,7 +312,8 @@ bool AcceptsOffer(const std::string& sdp) {
         }
         if (Lower(line) == "a=rtpmap:96 ps/90000")
             ps = true;
-        if (line == "a=setup:passive" || line == "a=sendrecv" || line == "a=recvonly" || line == "a=inactive")
+        if ((!udp && line == "a=setup:passive") || line == "a=sendrecv" || line == "a=recvonly" ||
+            line == "a=inactive")
             return false;
     }
     return video && ps;

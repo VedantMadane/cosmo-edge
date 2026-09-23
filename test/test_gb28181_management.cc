@@ -36,6 +36,7 @@ public:
     std::mutex mtx;
     std::condition_variable changed;
     std::vector<Json> calls;
+    int port{19001};
     cosmo::service::HttpResponse Get(const std::string&, long, long,
                                      const std::vector<std::pair<std::string, std::string>>&) override {
         return {200, R"({"code":0,"streams":[]})"};
@@ -46,7 +47,7 @@ public:
         std::lock_guard<std::mutex> lock(mtx);
         calls.push_back(Json::parse(body));
         changed.notify_all();
-        return {200, R"({"code":0,"port":19001,"is_tcp":true,"managed":true})"};
+        return {200, Json{{"code", 0}, {"port", port}, {"is_tcp", true}, {"managed", true}}.dump()};
     }
 };
 struct Registration {
@@ -74,8 +75,8 @@ class Camera {
 public:
     int fd{-1};
     std::string input;
-    explicit Camera(int port) {
-        fd = socket(AF_INET, SOCK_STREAM, 0);
+    explicit Camera(int port, bool udp = false) {
+        fd = socket(AF_INET, udp ? SOCK_DGRAM : SOCK_STREAM, 0);
         REQUIRE(fd >= 0);
         sockaddr_in address{};
         address.sin_family      = AF_INET;
@@ -137,6 +138,7 @@ std::string Catalog(const std::string& sn, const std::string& channel, int total
 }  // namespace
 TEST_CASE("Managed GB challenges registration then catalogs and invites a distinct video channel",
           "[gb28181][gb-managed]") {
+    const bool udpMedia = GENERATE(false, true);
     Root root;
     Media media;
     Registration registration(media);
@@ -148,7 +150,8 @@ TEST_CASE("Managed GB challenges registration then catalogs and invites a distin
     service.Execute({{"action", "saveDevice"},
                      {"id", deviceId},
                      {"username", "auth-account"},
-                     {"password", "fixture-password"}});
+                     {"password", "fixture-password"},
+                     {"mediaTransport", udpMedia ? "udp" : "tcp"}});
     const auto publicState = service.Execute({{"action", "list"}});
     CHECK(publicState.dump().find("fixture-password") == std::string::npos);
     CHECK(publicState.dump().find("ha1") == std::string::npos);
@@ -185,11 +188,11 @@ TEST_CASE("Managed GB challenges registration then catalogs and invites a distin
     REQUIRE(invite.method == "INVITE");
     CHECK(gb::User(invite.uri) == channelId);
     CHECK(gb::User(invite.Header("to")) == channelId);
-    CHECK(invite.body.find("19001 TCP/RTP/AVP 96") != std::string::npos);
-    CHECK(invite.body.find("a=setup:passive") != std::string::npos);
-    auto answer = gb::Response(invite, 200, "Content-Type: application/sdp\r\n");
-    const std::string sdp =
-        "v=0\r\nm=video 19002 TCP/RTP/AVP 96\r\na=rtpmap:96 PS/90000\r\na=setup:active\r\na=sendonly\r\n";
+    CHECK(invite.body.find(udpMedia ? "19001 RTP/AVP 96" : "19001 TCP/RTP/AVP 96") != std::string::npos);
+    CHECK((invite.body.find("a=setup:passive") != std::string::npos) == !udpMedia);
+    auto answer           = gb::Response(invite, 200, "Content-Type: application/sdp\r\n");
+    const std::string sdp = "v=0\r\nm=video 19002 " + std::string(udpMedia ? "RTP/AVP" : "TCP/RTP/AVP") +
+                            " 96\r\na=rtpmap:96 PS/90000\r\na=sendonly\r\n";
     answer.replace(answer.find("Content-Length: 0"), 17, "Content-Length: " + std::to_string(sdp.size()));
     answer += sdp;
     camera.Send(answer);
@@ -223,4 +226,105 @@ TEST_CASE("Managed GB rejects unlisted devices even in compatibility mode", "[gb
     Camera other(port);
     other.Send(Packet("REGISTER"));
     CHECK(other.Read().status == 403);
+}
+
+namespace {
+std::string UdpPacket(const std::string& method, int sequence, const std::string& body = "",
+                      const std::string& extra = "") {
+    auto wire = Packet(method, body, extra);
+    wire.replace(wire.find("SIP/2.0/TCP"), 11, "SIP/2.0/UDP");
+    wire.replace(wire.find("CSeq: 1 "), 8, "CSeq: " + std::to_string(sequence) + " ");
+    wire.replace(wire.find("branch=z9hG4bKfixture"), 21, "branch=z9hG4bKudp" + std::to_string(sequence));
+    return wire;
+}
+}  // namespace
+TEST_CASE(
+    "Managed GB UDP retransmits replies without consuming authentication twice and supports both media "
+    "transports",
+    "[gb28181][gb-managed][gb-udp]") {
+    const bool udpMedia = GENERATE(false, true);
+    Root root;
+    Media media;
+    media.port = FreePort();
+    Registration registration(media);
+    cosmo::service::Gb28181ManagementImpl service;
+    service.Init();
+    const int port = FreePort();
+    service.Execute({{"action", "savePlatform"}, {"enabled", true}, {"sipPort", port}});
+    service.Execute({{"action", "saveDevice"},
+                     {"id", deviceId},
+                     {"username", "auth-account"},
+                     {"password", "fixture-password"},
+                     {"mediaTransport", udpMedia ? "udp" : "tcp"}});
+    Camera camera(port, true);
+    const auto first = UdpPacket("REGISTER", 1);
+    camera.Send(first);
+    const auto challenge = camera.Read();
+    REQUIRE(challenge.status == 401);
+    CHECK(challenge.Header("via").find(";received=127.0.0.1;rport=") != std::string::npos);
+    camera.Send(first);
+    CHECK(camera.Read().Header("www-authenticate") == challenge.Header("www-authenticate"));
+    const auto authenticated = UdpPacket("REGISTER", 2, "", Authorization(challenge));
+    camera.Send(authenticated);
+    REQUIRE(camera.Read().status == 200);
+    const auto query = camera.Read();
+    REQUIRE(query.method == "MESSAGE");
+    // Simulate lost successful REGISTER response: same transaction receives 200,
+    // but a different transaction cannot reuse the consumed nonce.
+    camera.Send(authenticated);
+    REQUIRE(camera.Read().status == 200);
+    camera.Send(UdpPacket("REGISTER", 3, "", Authorization(challenge)));
+    REQUIRE(camera.Read().status == 401);
+    camera.Send(gb::Response(query, 200));
+    const auto start = query.body.find("<SN>") + 4;
+    const auto sn    = query.body.substr(start, query.body.find("</SN>") - start);
+    camera.Send(UdpPacket("MESSAGE", 4, Catalog(sn, channelId)));
+    REQUIRE(camera.Read().status == 200);
+    service.Execute({{"action", "validateChannel"}, {"deviceId", deviceId}, {"channelId", channelId}});
+    auto snapshot = service.Execute({{"action", "list"}});
+    CHECK(snapshot["udpListening"] == true);
+    CHECK(snapshot["tcpListening"] == true);
+    service.Ensure(channelId);
+    const auto invite = camera.Read();
+    REQUIRE(invite.method == "INVITE");
+    CHECK(invite.Header("via").find("SIP/2.0/UDP ") == 0);
+    CHECK(invite.body.find(udpMedia ? " RTP/AVP 96" : " TCP/RTP/AVP 96") != std::string::npos);
+    // Drop INVITE, verify retransmission preserves Call-ID/CSeq/branch/SSRC.
+    const auto repeated = camera.Read();
+    CHECK(repeated.Header("call-id") == invite.Header("call-id"));
+    CHECK(repeated.Header("cseq") == invite.Header("cseq"));
+    CHECK(repeated.body == invite.body);
+    auto answer           = gb::Response(invite, 200, "Content-Type: application/sdp\r\n");
+    const std::string sdp = "v=0\r\nm=video 19002 " + std::string(udpMedia ? "RTP/AVP" : "TCP/RTP/AVP") +
+                            " 96\r\na=rtpmap:96 PS/90000\r\na=sendonly\r\n";
+    answer.replace(answer.find("Content-Length: 0"), 17, "Content-Length: " + std::to_string(sdp.size()));
+    answer += sdp;
+    camera.Send(answer);
+    CHECK(camera.Read().method == "ACK");
+    camera.Send(answer);
+    CHECK(camera.Read().method == "ACK");
+    // A broken unrelated datagram must not drop the registered camera.
+    camera.Send("not sip");
+    service.Execute({{"action", "savePlatform"}, {"enabled", false}});
+    CHECK(service.Execute({{"action", "list"}})["listening"] == false);
+}
+
+TEST_CASE("Managed GB rolls back dual listener setup if UDP port is occupied",
+          "[gb28181][gb-managed][gb-udp]") {
+    Root root;
+    Media media;
+    Registration registration(media);
+    cosmo::service::Gb28181ManagementImpl service;
+    service.Init();
+    Camera existing(FreePort(), true);
+    sockaddr_in endpoint{};
+    socklen_t size = sizeof(endpoint);
+    REQUIRE(getsockname(existing.fd, reinterpret_cast<sockaddr*>(&endpoint), &size) == 0);
+    CHECK_THROWS(service.Execute(
+        {{"action", "savePlatform"}, {"enabled", true}, {"sipPort", ntohs(endpoint.sin_port)}}));
+    CHECK(service.Execute({{"action", "list"}})["enabled"] == false);
+    CHECK_THROWS(service.Execute({{"action", "saveDevice"},
+                                  {"id", deviceId},
+                                  {"allowUnauthenticated", true},
+                                  {"mediaTransport", "sctp"}}));
 }
